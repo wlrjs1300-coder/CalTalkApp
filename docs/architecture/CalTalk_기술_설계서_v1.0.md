@@ -85,24 +85,26 @@ common 제한 원칙: (1) 두 개 이상 모듈에서 실제 재사용이 확인
 이메일 기반 회원가입/로그인 + 서버 세션, 세션 저장소는 Spring Session JDBC로 PostgreSQL에 저장(확정 유지). 인프라 테이블 관리는 2.7.10 참조.
 회원가입은 POST /api/v1/auth/signup에 email, password, passwordConfirmation만 전달한다. 이름·닉네임·표시 이름·시간대는 가입 요청에서 받지 않는다. 가입 성공 시 사용자만 생성하고 자동 로그인이나 세션 생성을 하지 않는다.
 로그인은 POST /api/v1/auth/login에 email과 password만 전달한다. 이메일은 필수이며 앞뒤 공백 제거와 소문자 정규화 후 형식과 최대 254자를 검증한다. 비밀번호는 필수이며 8자 이상 64자 이하로 검증한다. 인증 성공 시 Spring Security 서버 세션을 생성하고 기존 세션이 있으면 세션 고정 공격 방지를 위해 세션 ID를 교체한다. 이미 로그인한 사용자도 제출한 새 인증 정보로 다시 인증하며 성공은 HTTP 200으로 처리하고 중복 로그인 오류를 반환하지 않는다.
+로그아웃은 POST /api/v1/auth/logout을 사용한다. 인증된 사용자용 API이지만 유효한 CSRF 토큰을 제시한 미인증 요청도 멱등적으로 처리하여 인증 여부와 관계없이 HTTP 204 No Content를 반환하고 로그인 상태를 노출하지 않는다. 현재 세션만 종료하며 다른 사용자나 다른 세션에는 영향을 주지 않는다.
 
 2.7.3 세션 만료와 로그인 유지 정책
 비활동 기준 세션 유효시간은 12시간이며 요청이 발생하면 만료 시각이 갱신되는 기본 유휴 시간 방식을 사용한다. 별도 자동 로그인·로그인 유지 기능과 로그인 상태 유지 체크박스는 제공하지 않고, 동시 로그인 제한도 이번 MVP에서 적용하지 않는다(확정).
 
 2.7.4 세션 쿠키 속성
 세션 쿠키 이름은 CALTALK_SESSION이다. HttpOnly=true, SameSite=Lax, Path=/를 사용하고 Domain과 Max-Age는 지정하지 않는 세션 쿠키로 설정한다. Secure는 환경별 설정으로 관리하여 로컬 HTTP 개발환경에서는 false, 운영 HTTPS 환경에서는 true로 강제하며 운영에서 false를 허용하지 않는다(확정).
+로그아웃 응답에서는 CALTALK_SESSION을 빈 값, Path=/, Max-Age=0, HttpOnly=true, SameSite=Lax로 설정해 삭제한다. Domain은 지정하지 않고 Secure는 현재 환경 설정과 동일하게 적용한다.
 
 2.7.5 비밀번호 해시
 비밀번호는 필수이며 8자 이상 64자 이하로 제한한다. 문자·숫자·특수문자 조합은 강제하지 않지만 공백만으로 구성된 값은 허용하지 않는다. passwordConfirmation은 password와 정확히 일치해야 하며 저장하지 않는다. 저장 시 Spring Security의 기본 강도를 사용하는 BCrypt로 해시하고 password_hash에 해시만 저장한다(기술 설계 확정안).
 
 2.7.6 CSRF 처리(SPA 기준)
-쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더. 로그인/로그아웃 후 세션 교체와 함께 CSRF 쿠키도 갱신되므로 프런트엔드는 매번 최신 값을 다시 읽는다. 세부 설정은 구현 직전 재확인.
+쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더를 사용한다. 회원가입과 로그인의 기존 CSRF 예외 계약은 유지하되 POST 로그아웃은 상태 변경 요청이므로 CSRF 보호 대상이며 예외에 추가하지 않는다. 로그아웃은 인증 여부와 관계없이 유효한 CSRF 토큰이 필요하고, 토큰 누락 또는 불일치는 HTML 리다이렉트 없이 HTTP 403 + FORBIDDEN 공통 오류 JSON으로 응답한다. 로그인 성공 후 세션 교체 시 CSRF 쿠키를 갱신하므로 프런트엔드는 최신 값을 다시 읽는다.
 
 2.7.7 CORS
 운영: 불필요(동일 출처). 개발: http://localhost:5173만 허용.
 
 2.7.7.1 Spring Security 웹 오류 정책
-POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. 인증되지 않은 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족은 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
+POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. POST /api/v1/auth/logout은 인증된 사용자용 경로이되 유효한 CSRF 토큰이 있는 미인증 요청을 멱등 성공으로 처리한다. 인증되지 않은 보호 API 요청과 로그아웃 뒤 기존 세션 쿠키로 보낸 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족과 CSRF 실패는 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
 
 2.7.8 사용자 소유권 검증
 모든 일정 조회·수정·삭제 쿼리에 인증 사용자 ID를 강제하고 Application 계층에서 소유자를 재비교한다(확정).
@@ -612,6 +614,25 @@ timestamp와 createdAt은 UTC ISO-8601 문자열이다. fieldErrors가 없는 �
 
 상태: 기술 설계 확정안
 
+2.18.7 로그아웃·세션 종료 계약
+POST /api/v1/auth/logout 성공은 HTTP 204 No Content이며 응답 본문과 리다이렉트 응답이 없다. 서버는 현재 Spring Session을 무효화하고 Spring Security 인증 정보를 제거해 SecurityContext를 초기화한다. 이미 세션이 없더라도 유효한 CSRF 토큰이 있으면 같은 204를 반환하며 로그인 상태를 응답으로 구분하지 않는다.
+
+성공 응답은 CALTALK_SESSION 쿠키를 빈 값, Path=/, Max-Age=0, HttpOnly=true, SameSite=Lax, 환경별 Secure로 삭제하고 Domain은 지정하지 않는다. 세션 ID, 쿠키 값, CSRF 토큰 등 인증 정보를 본문이나 헤더의 애플리케이션 데이터로 노출하지 않는다. 로그아웃 후 기존 세션 쿠키로 보호 API를 호출하면 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환한다.
+
+CSRF 토큰 누락 또는 불일치는 HTTP 403 + FORBIDDEN과 다음 공통 오류 JSON을 반환하며 HTML 리다이렉트를 하지 않는다.
+
+```json
+{
+  "timestamp": "2026-07-30T00:00:00Z",
+  "status": 403,
+  "code": "FORBIDDEN",
+  "message": "요청을 처리할 권한이 없습니다.",
+  "fieldErrors": []
+}
+```
+
+상태: 기술 설계 확정안
+
 2.19 보안·개인정보·요청 제한
 2.19.1 최소 수집·최소 전송·개인정보 안내
 LLM에는 명령 해석에 필요한 최소 정보만 전달, 이메일·내부 ID·인증 토큰 미전달(확정). 개인정보 처리 안내에는 "자연어 입력이 외부 API로 전달될 수 있다"는 사실만 반영한다(2.12.2). 운영 로그에 사용자 입력 원문을 무분별하게 남기지 않는다. API 키, DB 접속정보, 세션/CSRF 비밀값, HMAC 서버 비밀키는 환경변수로 관리한다.
@@ -657,6 +678,7 @@ DB 장애	성공하지 않은 변경을 성공으로 응답하지 않음
 회원가입 통합 테스트: PostgreSQL에서 users 스키마와 기본 시간대 Asia/Seoul, 정규화 이메일 저장, BCrypt 해시와 원문 불일치, 해시 일치 검증, 중복 이메일 사전 조회와 DB 고유 제약 경쟁 경로의 DUPLICATE_EMAIL 변환, 자동 세션 미생성을 검증한다.
 로그인 단위·MVC 테스트: 이메일 정규화·형식·254자 제한, 비밀번호 8~64자, 200 응답 필드와 민감 필드 부재, 422 입력 오류, 계정 부재·비밀번호 불일치·잠금의 동일한 401 INVALID_CREDENTIALS 응답을 검증한다.
 로그인 세션·보안 테스트: CALTALK_SESSION의 HttpOnly·SameSite=Lax·Path=/와 Domain·Max-Age 미지정, 환경별 Secure, 12시간 유휴 만료, 기존 세션 ID 교체, 재로그인, JSON 401 UNAUTHORIZED·403 FORBIDDEN, HTML 리다이렉트 부재를 검증한다.
+로그아웃 테스트: 인증 사용자 요청의 204와 빈 본문, 현재 세션 무효화, SecurityContext 제거, CALTALK_SESSION의 빈 값·Path=/·Max-Age=0·HttpOnly·SameSite=Lax·환경별 Secure·Domain 미지정, 시작 화면 이동, 기존 쿠키의 보호 API 401 UNAUTHORIZED, 유효한 CSRF 토큰을 포함한 미인증 재요청의 204, CSRF 누락·불일치의 403 FORBIDDEN JSON, HTML 리다이렉트 부재, 세션 ID·쿠키 값·토큰 비노출을 검증한다.
 로그인 제한 테스트: 정규화 이메일로 식별한 계정의 15분·5회 잠금과 성공 후 초기화, IP의 15분·20회 제한 및 429 RATE_LIMITED·초 단위 Retry-After를 검증한다.
 단위 테스트: 충돌 판정, 지속시간 유지, 낙관적 잠금 버전 비교, conflict_snapshot_hash/candidate_fingerprint 계산(정규화 규칙 포함), login_security_state의 15분 롤링 윈도·잠금 로직
 통합 테스트: 확인 승인의 잠금→검증→소비/재계산 전체 흐름, PWA 충돌 확인이 자연어 흐름과 동일한 승인 엔드포인트를 공유하는지
@@ -749,6 +771,7 @@ OpenAI 모델명 / API 데이터 보관 정책	확정하지 않음	OpenAI 공식
 22	관리형 DB 백업 보관 기간	미정	제공업체 선택 후 확정	—	보류
 23	회원가입 계약	email·password·passwordConfirmation 요청, 201 응답, 422·409·429·500 공통 오류 구조	구현 전 입력·저장·응답 계약 일치	이름·시간대 가입 입력	기술 설계 확정안
 24	로그인 계약	email·password 요청, 200 응답, Spring Security 세션과 CALTALK_SESSION, 일반화된 401 오류	세션 인증과 화면 계약 일치	JWT·자동 로그인	기술 설계 확정안
+25	로그아웃 계약	POST, CSRF 보호, 멱등 204, 현재 세션·SecurityContext 종료와 CALTALK_SESSION 삭제	인증 상태 비노출과 화면 계약 일치	리다이렉트·전체 세션 종료	기술 설계 확정안
 2.26 알려진 위험과 대응
 위험	영향	대응
 카카오 5초 제약과 OpenAI 응답 지연	스킬 응답 실패	짧은 내부 타임아웃 + 카카오 규격 정상 응답 내 실패 안내
@@ -806,6 +829,7 @@ OpenAI 실제 데이터 보관 정책 미확정	개인정보 안내가 실제 �
 화면 후보: 회원가입/로그인, 월간 캘린더(+날짜별 목록), 일정 상세, 일정 등록/수정 폼(충돌 시 확인 다이얼로그), 웹 자연어 대화 화면, 카카오 연결 관리 화면, 계정 설정
 회원가입: email, password, passwordConfirmation만 입력받고 이메일은 trim·소문자 정규화 후 최대 254자로 검증한다. 비밀번호는 8~64자이며 공백 전용을 거부하고 확인값과 정확히 일치시킨다. 성공은 201과 email·timezone·createdAt을 반환하며 자동 로그인과 세션 생성은 하지 않는다. 중복 이메일은 409 DUPLICATE_EMAIL, 입력 오류는 422 VALIDATION_ERROR로 처리한다.
 로그인: email과 password만 입력받고 성공은 200과 email·timezone을 반환한다. 실패 원인은 401 INVALID_CREDENTIALS로 일반화하며, 세션 쿠키는 CALTALK_SESSION이고 유휴 만료는 12시간이다. 로그인 성공 후 검증된 내부 상대 복귀 경로가 있으면 우선 이동하고 없으면 홈으로 이동한다. 실패 시 이메일은 유지하고 비밀번호는 지운다.
+로그아웃: POST /api/v1/auth/logout은 CSRF 보호 대상으로 유지한다. 유효한 CSRF 토큰이 있으면 인증 여부와 무관하게 현재 세션과 SecurityContext를 정리하고 CALTALK_SESSION을 삭제한 뒤 빈 본문의 204를 반환한다. 클라이언트는 인증 상태와 사용자 캐시를 초기화하고 로그인 화면이 아닌 시작 화면으로 이동하며, 서버 리다이렉트와 민감 인증 정보 노출은 허용하지 않는다.
 화면별 상태: 로딩, 데이터 없음, 입력 오류(422), 권한 없음(403), 인증 만료(401), REPHRASE_REQUIRED, AI_SERVICE_UNAVAILABLE(웹 503), SCHEDULE_CONFLICT→확인 다이얼로그, CONFIRMATION_SUPERSEDED(→"정보가 바뀌어 다시 확인이 필요합니다"와 함께 최신 제안 내용을 자동으로 다시 보여주고 재확인만 받으면 됨), CONFIRMATION_TARGET_GONE(→"해당 일정을 찾을 수 없습니다. 처음부터 다시 시도해주세요")
 계정 잠금 안내: 로그인 실패가 누적되어 잠긴 경우, 정확한 원인을 노출하지 않으면서도 "잠시 후 다시 시도해주세요" 수준의 문구로 안내
 PWA 저장 충돌 확인 다이얼로그와 자연어 대화의 최종 확인이 내부적으로 동일한 서버 로직을 사용한다는 점
