@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -66,6 +67,22 @@ public class GlobalExceptionHandler {
                 exception.getMessage(),
                 List.of()
         );
+    }
+
+    @ExceptionHandler(UnauthorizedCurrentUserException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnauthorizedCurrentUser(
+            UnauthorizedCurrentUserException exception
+    ) {
+        ApiErrorResponse response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.UNAUTHORIZED.value(),
+                "UNAUTHORIZED",
+                exception.getMessage(),
+                List.of()
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .cacheControl(CacheControl.noStore())
+                .body(response);
     }
 
     private ResponseEntity<ApiErrorResponse> errorResponse(
