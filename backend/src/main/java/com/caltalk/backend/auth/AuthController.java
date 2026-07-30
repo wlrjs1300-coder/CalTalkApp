@@ -25,17 +25,20 @@ public class AuthController {
 
     private final SignupService signupService;
     private final LoginService loginService;
+    private final LogoutService logoutService;
     private final SecurityContextRepository securityContextRepository;
     private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
 
     public AuthController(
             SignupService signupService,
             LoginService loginService,
+            LogoutService logoutService,
             SecurityContextRepository securityContextRepository,
             SessionAuthenticationStrategy sessionAuthenticationStrategy
     ) {
         this.signupService = signupService;
         this.loginService = loginService;
+        this.logoutService = logoutService;
         this.securityContextRepository = securityContextRepository;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
     }
@@ -66,5 +69,14 @@ public class AuthController {
         securityContextRepository.saveContext(securityContext, httpRequest, httpResponse);
 
         return response;
+    }
+
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse
+    ) {
+        logoutService.logout(httpRequest, httpResponse);
     }
 }

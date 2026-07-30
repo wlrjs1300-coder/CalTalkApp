@@ -37,7 +37,12 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
             HttpServletResponse response,
             AccessDeniedException exception
     ) throws IOException {
-        writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "접근 권한이 없습니다.");
+        writeError(
+                response,
+                HttpServletResponse.SC_FORBIDDEN,
+                "FORBIDDEN",
+                "요청을 처리할 권한이 없습니다."
+        );
     }
 
     private void writeError(HttpServletResponse response, int status, String code, String message)

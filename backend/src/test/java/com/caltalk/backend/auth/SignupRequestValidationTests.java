@@ -37,6 +37,9 @@ class SignupRequestValidationTests {
     @MockitoBean
     private LoginService loginService;
 
+    @MockitoBean
+    private LogoutService logoutService;
+
     @Test
     void allowsSignupWithoutAuthentication() throws Exception {
         when(signupService.signup(any(SignupRequest.class)))
