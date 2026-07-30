@@ -11,7 +11,7 @@ CalTalk 화면·기능 명세서 v0.2 — 독립 검수 보고서.md
 검수 의견	판정	기준 문서 근거	판정 이유	최종 반영 위치
 자연어 과거 일정 거부 상태 추가	반영	서비스 기획서 11.7, 기술 설계서 2.10	해석 실패가 아니라 정책상 거부이므로 REPHRASE_REQUIRED와 분리해야 한다. 다만 기술 설계의 확정 enum으로 표현하지 않고 화면·API 명세 제안 상태로 둔다.	SCR-CHAT-001, 공통 상태 사전, 수용 기준, 테스트, 구현 전달사항, UX 위험, PoC 전달사항
 재질문 대기 10분 만료 처리 추가	반영	서비스 기획서 15.4, 기술 설계서 2.13	pending_commands 10분과 confirmation_requests 5분은 별도 계약이다.	SCR-CHAT-001, 공통 상태 사전, 수용 기준, 테스트
-생략된 사용자 흐름 전문 복원	반영	문서 자기완결성 요구	최종 문서 하나만으로 전체 흐름을 파악할 수 있어야 한다.	사용자 흐름 17개
+생략된 사용자 흐름 전문 복원	반영	문서 자기완결성 요구	최종 문서 하나만으로 전체 흐름을 파악할 수 있어야 한다.	사용자 흐름 18개
 자연어 확인 취소 API 매핑 추가	반영	기술 설계서 2.4, 2.8.4, 2.18.1	PWA와 자연어 확인이 공통 confirmation 모델을 사용한다.	화면별 API 연결표
 수정 후보 선택 API 매핑 추가	반영	기술 설계서 2.13, 2.18.1	후보 선택은 일정 ID를 URL에 노출하는 별도 엔드포인트가 아니라 POST /api/v1/chat/messages 재사용 제안으로 정리한다.	DLG-CHAT-TARGET-001, API 연결표
 수용 기준 “22개”를 실제 개수로 정정	반영	실제 목록 직접 계산	고정 숫자에 맞추지 않고 최종 목록을 기준으로 재계산한다.	수용 기준, 최종 요약
@@ -82,6 +82,8 @@ CalTalk MVP의 화면과 기능을 하나의 문서로 통합하여 인증, PWA 
 5. 화면 공통 동작
 5.1 보호 화면
 로그인이 필요한 화면에서 세션이 만료되면 로그인 화면으로 이동한다. 재로그인 성공 후 안전한 내부 경로였던 경우 원래 화면으로 복귀한다.
+앱 초기 진입과 새로고침에서는 GET /api/v1/users/me로 세션 인증 상태를 확인한다. 200이면 email·timezone·createdAt을 사용자 상태에 복원하고, 401이면 비로그인 상태로 초기화한다. 공개 화면은 현재 시작 화면을 유지하고 보호 화면은 시작 화면으로 이동하며 로그인 화면으로 무조건 이동하지 않는다. 401은 일반 서버 오류가 아니라 정상적인 인증 상태 판정 결과로 처리한다.
+현재 사용자 응답은 Cache-Control: no-store로 저장하지 않으며 ETag와 Last-Modified를 사용하지 않는다.
 5.2 로딩과 중복 실행
 요청 중 실행 버튼을 비활성화한다.
 조회 영역은 콘텐츠 위치를 유지하는 로딩 상태를 표시한다.
@@ -342,6 +344,7 @@ HTTP/채널	코드·상태	사용자 메시지 원칙	화면 처리
 오프라인	OFFLINE	완전한 오프라인 일정 기능 미지원	전역 배너
 
 REST API 오류 JSON은 timestamp, status, code, message, fieldErrors를 사용한다. timestamp는 UTC ISO-8601 문자열이며 fieldErrors의 각 항목은 field, code, message로 구성한다. 필드 오류가 없으면 빈 배열을 사용한다. 스택 트레이스, SQL 메시지, 내부 클래스명과 입력 비밀번호는 반환하지 않는다.
+GET /api/v1/users/me의 세션 없음·미인증·사용자 레코드 없음은 모두 401 UNAUTHORIZED와 “인증이 필요합니다.”로 일반화한다. HTML 리다이렉트와 Location 헤더를 사용하지 않으며 이메일·세션 ID·쿠키 값·인증 객체 정보를 노출하지 않는다. 예상하지 못한 오류는 500 SERVER_ERROR를 사용하고 내부 정보와 사용자 이메일을 반환하지 않는다.
 
 ```json
 {
@@ -374,7 +377,7 @@ REST API 오류 JSON은 timestamp, status, code, message, fieldErrors를 사용�
 CSRF 실패는 같은 구조로 HTTP 403, code FORBIDDEN, message “요청을 처리할 권한이 없습니다.”, 빈 fieldErrors를 사용한다.
 
 카카오 채널에서는 동일한 의미의 상태를 카카오 스킬 규격의 정상 응답 JSON 내부 안내 문구로 변환한다.
-9. 사용자 흐름 17개
+9. 사용자 흐름 18개
 9.1 첫 방문 → 회원가입 → 로그인 → 오늘 일정
 시작 조건: 비로그인.
 행동: 회원가입 제출 후 로그인 화면에서 다시 로그인.
@@ -454,13 +457,18 @@ PWA 계정과 일정 자체는 삭제하지 않는다.
 로그인 화면으로 이동하고 안전한 복귀 경로를 보존한다.
 로그인 성공 후 원래 화면으로 복귀한다.
 실패한 변경을 자동 재전송하지 않는다.
-9.16 로그아웃 → 시작 화면
+9.16 앱 초기화·새로고침 → 인증 상태 복원
+앱 진입 시 GET /api/v1/users/me를 호출한다. 200이면 email·timezone·createdAt을 사용자 상태에 저장하고 기존 화면을 계속 표시한다.
+401이면 사용자 상태를 비로그인으로 초기화한다. 공개 화면은 시작 화면을 유지하고 보호 화면은 시작 화면으로 이동하며 로그인 화면으로 강제 이동하거나 일반 서버 오류를 표시하지 않는다.
+응답은 Cache-Control: no-store로 캐시하지 않는다.
+
+9.17 로그아웃 → 시작 화면
 인증 사용자가 유효한 CSRF 토큰과 함께 POST /api/v1/auth/logout을 요청한다.
 서버는 현재 세션과 SecurityContext를 종료하고 CALTALK_SESSION을 삭제한 뒤 본문과 리다이렉트 없는 204를 반환한다.
 클라이언트는 인증 상태와 사용자 캐시를 초기화하고 시작 화면으로 이동하며, 로그인 화면으로 직접 이동하지 않는다. 뒤로가기로 보호 화면이 재노출되지 않도록 처리한다.
 이미 세션이 없어도 유효한 CSRF 토큰이 있으면 같은 204를 반환한다. CSRF 토큰 누락·불일치는 403 FORBIDDEN JSON으로 처리하고 성공 화면 이동을 하지 않는다.
 
-9.17 회원 탈퇴
+9.18 회원 탈퇴
 사용자가 삭제 범위 체크박스를 확인한다.
 서버가 계정 및 관련 데이터를 한 트랜잭션으로 삭제한다.
 성공 시 세션을 종료하고 시작 화면으로 이동한다.
@@ -478,6 +486,10 @@ Given 이미 로그인한 사용자, When 새 인증 정보로 로그인하면, 
 Given 인증되지 않은 사용자, When 보호 API를 호출하면, Then HTML 리다이렉트 없이 401 UNAUTHORIZED JSON을 받는다.
 Given 권한이 부족한 사용자, When 보호 API를 호출하면, Then 403 FORBIDDEN JSON을 받는다.
 Given 로그인 성공 후 안전한 내부 상대 복귀 경로, When 이동하면, Then 해당 경로를 우선 사용하고 외부·프로토콜 상대 URL은 거부한다.
+Given 로그인 세션, When 앱 초기 진입 또는 새로고침에서 GET /api/v1/users/me를 호출하면, Then 200과 email·timezone·UTC createdAt을 받고 Cache-Control no-store로 사용자 상태를 복원한다.
+Given 세션이 없는 공개 화면, When GET /api/v1/users/me가 401 UNAUTHORIZED를 반환하면, Then 일반 오류 없이 비로그인 상태로 초기화하고 시작 화면을 유지한다.
+Given 세션이 없는 보호 화면, When GET /api/v1/users/me가 401 UNAUTHORIZED를 반환하면, Then 로그인 화면으로 강제 이동하지 않고 시작 화면으로 이동한다.
+Given 인증 principal의 사용자가 DB에 없음, When GET /api/v1/users/me를 호출하면, Then 세션·SecurityContext·CALTALK_SESSION을 정리하고 사용자 존재 여부 노출 없이 401 UNAUTHORIZED JSON을 받는다.
 Given 인증된 사용자와 유효한 CSRF 토큰, When 로그아웃하면, Then 현재 세션과 SecurityContext가 종료되고 CALTALK_SESSION이 삭제되며 빈 본문의 204를 받는다.
 Given 로그아웃 성공, When 클라이언트가 응답을 처리하면, Then 인증 상태와 사용자 캐시를 초기화하고 로그인 화면이 아닌 시작 화면으로 이동하며 뒤로가기로 보호 화면을 재노출하지 않는다.
 Given 로그아웃된 기존 세션 쿠키, When 보호 API를 호출하면, Then HTML 리다이렉트 없이 401 UNAUTHORIZED JSON을 받는다.
@@ -508,7 +520,7 @@ Given 시간대 변경, When 저장하면, Then UTC 값은 유지되고 사용�
 Given 탈퇴 체크 미선택, When 화면을 보면, Then 삭제 버튼은 비활성화된다.
 Given 탈퇴 처리 오류, When 응답하면, Then 계정과 체크 상태가 유지된다.
 Given 다른 사용자 일정 URL, When 접근하면, Then 일정 내용 없이 403 또는 안전한 미노출 응답을 받는다.
-최종 수용 기준은 42개다.
+최종 수용 기준은 46개다.
 11. 화면별 API 연결
 11.1 확정 API
 POST /api/v1/auth/signup
@@ -548,7 +560,8 @@ DLG-CHAT-CONFIRM-*	취소	POST /api/v1/confirmations/{confirmationId}/cancel	—
 SCR-KAKAO-001	코드 발급	POST /api/v1/kakao/link-codes	—	—	—
 SCR-KAKAO-001	상태 확인	GET /api/v1/kakao/link 제안	—	—	—
 SCR-KAKAO-001	연결 해제	POST /api/v1/kakao/links/revoke	—	—	—
-SCR-SET-001	사용자 정보	GET /api/v1/users/me	—	—	—
+앱 공통	인증 상태 복원	GET /api/v1/users/me	응답을 HTTP 캐시에 저장하지 않고 사용자 메모리 상태 갱신	없음	200이면 email·timezone·createdAt 복원, 401이면 공개 화면 유지 또는 보호 화면에서 시작 화면 이동
+SCR-SET-001	사용자 정보	GET /api/v1/users/me	Cache-Control no-store	없음	email·timezone·createdAt만 반환
 SCR-SET-001	로그아웃	POST /api/v1/auth/logout	인증 상태와 사용자 캐시 초기화	없음	유효한 CSRF 토큰이면 인증 여부와 무관하게 현재 세션·SecurityContext 종료와 CALTALK_SESSION 삭제 후 204, 시작 화면 이동
 SCR-SET-002	시간대 저장	PATCH /api/v1/users/me 제안	GET /api/v1/users/me 사용자 정보, 홈 화면의 오늘 일정, 월간 캘린더 일정, 선택 날짜 일정 목록, 현재 열려 있는 일정 상세의 표시값을 무효화하거나 다시 조회하고 사용자 시간대 기준으로 날짜·요일·시작 시간·종료 시간·오늘 및 선택 날짜 기준을 다시 계산	없음	기존 일정의 UTC 절대 저장값을 유지한 채 새 시간대 기준으로 표시 갱신
 SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
@@ -556,6 +569,50 @@ SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
 12. 테스트 체크리스트
 
 정상 회원가입·로그인
+
+로그인 후 GET /api/v1/users/me HTTP 200
+
+현재 사용자 email 반환
+
+현재 사용자 timezone 반환
+
+현재 사용자 createdAt 반환
+
+현재 사용자 Cache-Control no-store
+
+현재 사용자 응답에 password 없음
+
+현재 사용자 응답에 passwordHash 없음
+
+현재 사용자 응답에 token 없음
+
+현재 사용자 응답에 sessionId 없음
+
+현재 사용자 응답에 roles 없음
+
+현재 사용자 응답에 authorities 없음
+
+세션 없는 현재 사용자 조회 HTTP 401
+
+현재 사용자 미인증 오류 code UNAUTHORIZED
+
+현재 사용자 미인증 오류 JSON Content-Type
+
+현재 사용자 미인증 응답 HTML 리다이렉트 없음
+
+현재 사용자 미인증 응답 Location 헤더 없음
+
+로그인 후 로그아웃과 기존 쿠키의 현재 사용자 조회 HTTP 401
+
+DB 사용자가 없는 인증 세션의 현재 사용자 조회 HTTP 401
+
+DB 사용자가 없는 인증 세션 무효화
+
+DB 사용자가 없는 인증 세션 SecurityContext 제거
+
+DB 사용자가 없는 인증 세션 CALTALK_SESSION 삭제
+
+현재 사용자 조회에서 사용자 존재 여부 비노출
 
 인증된 사용자 로그아웃 HTTP 204
 
@@ -704,7 +761,7 @@ CONFIRMATION_TARGET_GONE
 탈퇴 서버 오류 시 데이터 유지
 
 실제 식별값·토큰·코드의 URL 비노출
-총 75개 점검 항목이다.
+총 98개 점검 항목이다.
 13. 구현 단계 전달사항
 13.1 인증 구현
 회원가입은 email, password, passwordConfirmation만 받고 이름과 시간대는 받지 않는다. 이메일은 trim·소문자 정규화 후 형식과 최대 254자를 검증한다.
@@ -717,6 +774,9 @@ CONFIRMATION_TARGET_GONE
 세션과 CSRF 쿠키 갱신을 함께 검증한다.
 로그아웃은 CSRF 예외에 추가하지 않는다. 유효한 CSRF 토큰이 있으면 인증 여부와 관계없이 현재 세션과 SecurityContext를 종료하고 CALTALK_SESSION을 삭제한 뒤 빈 본문의 204를 반환한다. 토큰 누락·불일치는 403 FORBIDDEN 공통 JSON으로 처리한다.
 클라이언트는 로그아웃 성공 시 인증 상태와 사용자 캐시를 초기화하고 로그인 화면이 아닌 시작 화면으로 이동한다. 서버 리다이렉트를 사용하지 않으며 뒤로가기로 보호 화면이 재노출되지 않도록 처리한다.
+현재 사용자 조회는 세션 principal의 정규화 이메일로 users를 다시 조회하고 200에서 email·timezone·createdAt만 반환한다. id·비밀번호·토큰·세션·역할 정보는 반환하지 않으며 Cache-Control no-store를 적용한다.
+세션이 없거나 인증되지 않았거나 principal에 해당하는 사용자가 없으면 401 UNAUTHORIZED 공통 JSON을 반환한다. 사용자 없는 세션은 무효화하고 SecurityContext와 CALTALK_SESSION을 정리하며 HTML 리다이렉트와 사용자 존재 여부 노출을 금지한다.
+프런트엔드는 앱 초기 진입과 새로고침에서 GET /api/v1/users/me로 인증 상태를 복원한다. 401이면 공개 화면은 유지하고 보호 화면은 시작 화면으로 이동하며 로그인 화면으로 무조건 이동하지 않는다.
 13.2 PWA 일정 CRUD
 종료 시간 자동 채움과 다음 날 토글을 구현한다.
 충돌 시 클라이언트 승인 플래그가 아니라 서버 confirmation을 사용한다.
@@ -783,9 +843,9 @@ PENDING_COMMAND_EXPIRED reason 필드와 값의 최종 채택 여부
 
 공통 상태와 오류 정의
 
-사용자 흐름 17개 전문 수록
+사용자 흐름 18개 전문 수록
 
-수용 기준 42개 작성
+수용 기준 46개 작성
 
 API 경로를 /api/v1 전체 경로로 통일
 
@@ -830,9 +890,9 @@ DLG-EXPIRED-001의 화면별 표시 형식을 구체화했다.
 다이얼로그·시트·상태 UI: 17개
 API: 17종(확정 13종, 화면·API 명세 제안 4종)
 
-사용자 흐름: 17개
-수용 기준: 42개
-테스트 체크 항목: 75개
+사용자 흐름: 18개
+수용 기준: 46개
+테스트 체크 항목: 98개
 공통 상태·오류 사전: 21개 행
 20. 최종 자체 평가
 20.1 정합성
