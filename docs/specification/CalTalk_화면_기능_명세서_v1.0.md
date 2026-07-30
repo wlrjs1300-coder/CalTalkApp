@@ -133,12 +133,15 @@ CalTalk MVP의 화면과 기능을 하나의 문서로 통합하여 인증, PWA 
 완료 기준: 성공 경로는 로그인 화면 이동 하나뿐이며 자동 로그인 대안은 없다.
 6.3 SCR-AUTH-002 — 로그인
 목적: 서버 세션을 발급받는다.
-입력: 이메일, 비밀번호.
+입력: email, password. 모두 필수다.
 진입 사유별 안내: 가입 완료, 세션 만료.
-검증: 필수값.
-실패: 계정 부재, 비밀번호 오류, 계정 잠금의 내부 차이를 노출하지 않고 “이메일 또는 비밀번호가 올바르지 않거나 잠시 로그인할 수 없습니다.” 수준의 공통 문구를 사용한다.
+이메일 검증: 앞뒤 공백 제거와 소문자 정규화 후 올바른 이메일 형식과 최대 254자를 검증한다.
+비밀번호 검증: 8자 이상 64자 이하로 검증한다.
+성공: HTTP 200 응답의 email과 timezone을 확인하고 서버 세션을 사용한다. 기존 세션이 있으면 세션 ID를 교체하며, 이미 로그인한 사용자도 새 인증 정보로 재인증하고 중복 로그인 오류를 반환하지 않는다.
+실패: 계정 부재, 비밀번호 오류, 계정 잠금의 내부 차이를 노출하지 않고 HTTP 401 INVALID_CREDENTIALS와 “이메일 또는 비밀번호를 확인해주세요.”를 사용한다. 로그인 화면과 이메일 입력값은 유지하고 비밀번호 입력값은 삭제한다.
 로딩: 로그인 버튼 비활성화.
-성공: 안전한 복귀 경로가 있으면 복귀하고, 없으면 /home.
+이동: 검증된 서비스 내부 상대 복귀 경로가 있으면 우선 이동하고, 없으면 /home으로 이동한다. 외부 URL과 프로토콜 상대 URL은 복귀 경로로 허용하지 않는다.
+세션: CALTALK_SESSION 쿠키를 사용하며 12시간 유휴 만료다. 쿠키는 HttpOnly=true, SameSite=Lax, Path=/이고 Domain과 Max-Age는 지정하지 않는다. Secure는 로컬 HTTP 개발환경에서 false, 운영 HTTPS 환경에서 true로 설정하며 운영에서 false를 허용하지 않는다. 자동 로그인, 로그인 상태 유지 체크박스와 동시 로그인 제한은 제공하지 않는다.
 관련 API: POST /api/v1/auth/login.
 완료 기준: 계정 존재 여부와 잠금 여부가 응답 문구 차이로 노출되지 않는다.
 6.4 SCR-HOME-001 — 홈·오늘 일정
@@ -317,8 +320,8 @@ HTTP/채널	코드·상태	사용자 메시지 원칙	화면 처리
 200 제안	NEEDS_INPUT / PENDING_COMMAND_EXPIRED	“이전 대화가 오래되어 처음부터 다시 확인할게요.”	현재 메시지를 새 요청으로 재해석
 200	NEEDS_INPUT	누락된 제목·날짜·시간 질문	재질문 상태
 200	REPHRASE_REQUIRED	지원 예시와 재표현 요청	DB 변경 없음
-401	AUTHENTICATION_REQUIRED	다시 로그인 안내	로그인 이동
-401	로그인 실패·잠금	계정 존재 여부를 숨기는 동일 문구	로그인 폼 유지
+401	UNAUTHORIZED	다시 로그인 안내, JSON 오류 응답	로그인 이동, HTML 리다이렉트 금지
+401	INVALID_CREDENTIALS	“이메일 또는 비밀번호를 확인해주세요.”	이메일 유지, 비밀번호 삭제, 로그인 폼 유지
 403	FORBIDDEN	접근 권한 없음	데이터 내용 미노출
 404	SCHEDULE_NOT_FOUND	일정을 찾을 수 없음	목록 이동
 404	CONFIRMATION_NOT_FOUND	만료됐거나 이미 처리된 요청	확인 UI 종료
@@ -353,6 +356,18 @@ REST API 오류 JSON은 timestamp, status, code, message, fieldErrors를 사용�
 }
 ```
 
+로그인 자격 증명 실패는 같은 구조로 다음 JSON을 사용한다.
+
+```json
+{
+  "timestamp": "2026-07-30T00:00:00Z",
+  "status": 401,
+  "code": "INVALID_CREDENTIALS",
+  "message": "이메일 또는 비밀번호를 확인해주세요.",
+  "fieldErrors": []
+}
+```
+
 카카오 채널에서는 동일한 의미의 상태를 카카오 스킬 규격의 정상 응답 JSON 내부 안내 문구로 변환한다.
 9. 사용자 흐름 16개
 9.1 첫 방문 → 회원가입 → 로그인 → 오늘 일정
@@ -363,6 +378,8 @@ API: 회원가입, 로그인, 사용자 정보, 오늘 일정 조회.
 DB 변경: 가입 성공 시 사용자 생성.
 실패: 422 VALIDATION_ERROR, 409 DUPLICATE_EMAIL, 429 RATE_LIMITED, 로그인 공통 실패.
 완료: 홈에 오늘 일정 최대 3건 표시.
+
+로그인 요청은 email과 password만 사용한다. 성공 시 200과 email·timezone을 받고 CALTALK_SESSION 서버 세션을 생성한다. 안전한 내부 상대 복귀 경로가 있으면 해당 경로로 이동하고 없으면 홈으로 이동한다. 실패 시 401 INVALID_CREDENTIALS로 원인을 일반화하고 이메일은 유지하며 비밀번호는 삭제한다.
 9.2 월간 캘린더 → 날짜 선택 → 일정 등록
 날짜 선택 후 목록으로 스크롤하고 등록 화면에 날짜를 초기화한다.
 저장 시 충돌이 없으면 즉시 생성하고, 있으면 confirmation을 발급한다.
@@ -443,7 +460,13 @@ Given 가입 직후, When 로그인 화면에 진입하면, Then 가입 완료 �
 Given 잘못된 이메일·비밀번호·확인값, When 회원가입을 제출하면, Then 422 VALIDATION_ERROR와 필드별 오류를 받는다.
 Given 정규화 후 같은 이메일이 이미 존재, When 회원가입을 제출하면, Then 409 DUPLICATE_EMAIL을 받고 사용자가 추가되지 않는다.
 Given 회원가입 성공 또는 실패, When 응답을 확인하면, Then password·passwordConfirmation·passwordHash·token·secret이 포함되지 않는다.
-Given 로그인 실패 또는 잠금, When 응답을 표시하면, Then 계정 존재 여부를 구분할 수 없다.
+Given 유효한 로그인 요청, When 인증에 성공하면, Then 200과 email·timezone을 받고 CALTALK_SESSION 세션을 생성한다.
+Given 계정 부재·비밀번호 오류·계정 잠금, When 로그인하면, Then 모두 401 INVALID_CREDENTIALS와 동일한 메시지를 받는다.
+Given 로그인 입력 형식 오류, When 제출하면, Then 422 VALIDATION_ERROR와 필드별 오류를 받는다.
+Given 이미 로그인한 사용자, When 새 인증 정보로 로그인하면, Then 기존 세션 ID를 교체하고 200을 받는다.
+Given 인증되지 않은 사용자, When 보호 API를 호출하면, Then HTML 리다이렉트 없이 401 UNAUTHORIZED JSON을 받는다.
+Given 권한이 부족한 사용자, When 보호 API를 호출하면, Then 403 FORBIDDEN JSON을 받는다.
+Given 로그인 성공 후 안전한 내부 상대 복귀 경로, When 이동하면, Then 해당 경로를 우선 사용하고 외부·프로토콜 상대 URL은 거부한다.
 Given 오늘 일정이 4건 이상, When 홈을 열면, Then 3건과 전체 보기 액션만 표시된다.
 Given 월간 캘린더, When 스크롤하면, Then 상단 월 이동 바만 고정되고 그리드는 스크롤된다.
 Given 날짜 선택, When 선택이 완료되면, Then 해당 날짜 목록으로 이동한다.
@@ -469,7 +492,7 @@ Given 시간대 변경, When 저장하면, Then UTC 값은 유지되고 사용�
 Given 탈퇴 체크 미선택, When 화면을 보면, Then 삭제 버튼은 비활성화된다.
 Given 탈퇴 처리 오류, When 응답하면, Then 계정과 체크 상태가 유지된다.
 Given 다른 사용자 일정 URL, When 접근하면, Then 일정 내용 없이 403 또는 안전한 미노출 응답을 받는다.
-최종 수용 기준은 31개다.
+최종 수용 기준은 37개다.
 11. 화면별 API 연결
 11.1 확정 API
 POST /api/v1/auth/signup
@@ -493,7 +516,7 @@ GET /api/v1/kakao/link
 중복 제거 후 총 17종이다.
 화면·UI	액션	API	캐시 무효화 또는 재조회	일정 DB 변경	결과
 SCR-AUTH-001	가입	POST /api/v1/auth/signup	—	없음	users에 정규화 email·BCrypt password_hash·Asia/Seoul timezone·UTC created_at 저장, 201 응답 후 로그인 화면 이동
-SCR-AUTH-002	로그인	POST /api/v1/auth/login	—	—	—
+SCR-AUTH-002	로그인	POST /api/v1/auth/login	GET /api/v1/users/me 사용자 정보 재조회	없음	200 응답과 CALTALK_SESSION 생성 후 안전한 복귀 경로 또는 홈 이동
 SCR-HOME-001	오늘 일정	GET /api/v1/schedules	—	—	—
 SCR-CAL-001/002	월·일 일정	GET /api/v1/schedules	—	—	—
 SCR-SCHED-001	상세	GET /api/v1/schedules/{id} 제안	—	—	—
@@ -519,6 +542,26 @@ SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
 정상 회원가입·로그인·로그아웃
 
 회원가입 후 자동 로그인 없음
+
+로그인 요청 email·password와 200 email·timezone 응답
+
+로그인 이메일 trim·소문자 정규화·형식·254자 제한
+
+로그인 비밀번호 8~64자 제한
+
+계정 부재·비밀번호 오류·잠금의 401 INVALID_CREDENTIALS 응답 통일
+
+CALTALK_SESSION과 HttpOnly·SameSite=Lax·Path=/·환경별 Secure
+
+세션 12시간 유휴 만료와 기존 세션 ID 교체
+
+계정 기준 15분·5회와 성공 후 초기화
+
+IP 기준 15분·20회 및 429 RATE_LIMITED·Retry-After
+
+보호 API의 JSON 401 UNAUTHORIZED·403 FORBIDDEN과 HTML 리다이렉트 부재
+
+안전한 내부 상대 복귀 경로 검증과 외부 URL 차단
 
 회원가입 요청 필드는 email, password, passwordConfirmation만 사용
 
@@ -621,13 +664,16 @@ CONFIRMATION_TARGET_GONE
 탈퇴 서버 오류 시 데이터 유지
 
 실제 식별값·토큰·코드의 URL 비노출
-총 53개 점검 항목이다.
+총 63개 점검 항목이다.
 13. 구현 단계 전달사항
 13.1 인증 구현
 회원가입은 email, password, passwordConfirmation만 받고 이름과 시간대는 받지 않는다. 이메일은 trim·소문자 정규화 후 형식과 최대 254자를 검증한다.
 비밀번호는 8자 이상 64자 이하이고 공백 전용 값을 거부하며 조합은 강제하지 않는다. 확인값은 저장하지 않고 BCrypt 해시만 저장한다.
 가입 성공은 201과 email·timezone·createdAt을 반환하되 자동 로그인과 세션 생성은 하지 않는다. 422 VALIDATION_ERROR, 409 DUPLICATE_EMAIL, 429 RATE_LIMITED, 500 SERVER_ERROR와 공통 오류 JSON을 적용한다.
-로그인 실패 내부 분기는 사용자에게 노출하지 않는다.
+로그인은 email과 password만 받고 성공은 200과 email·timezone을 반환한다. CALTALK_SESSION 서버 세션을 생성하고 기존 세션이 있으면 ID를 교체하며, 유휴 만료는 12시간으로 설정한다.
+로그인 실패 내부 분기는 401 INVALID_CREDENTIALS로 일반화한다. 계정 제한은 15분·5회, IP 제한은 15분·20회를 유지하고 IP 초과 시 429 RATE_LIMITED와 Retry-After를 반환한다.
+보호 API의 미인증·권한 부족은 HTML 리다이렉트 없이 각각 401 UNAUTHORIZED·403 FORBIDDEN JSON으로 응답한다.
+로그인 성공 후 내부 상대 복귀 경로를 검증해 우선 이동하고 없으면 홈으로 이동한다. 실패 시 이메일은 유지하고 비밀번호는 삭제한다.
 세션과 CSRF 쿠키 갱신을 함께 검증한다.
 13.2 PWA 일정 CRUD
 종료 시간 자동 채움과 다음 날 토글을 구현한다.
@@ -678,7 +724,7 @@ PoC 성공 전 랜딩에서 카카오 기능을 완성된 기능처럼 홍보하
 PoC가 실패하거나 범위 조정 조건에 해당하면 PWA와 웹 자연어 기능을 유지하고 카카오 공개 문구만 비활성화한다.
 16. 보류·확인 필요 항목
 다음 날을 넘는 다중 일자 일정 허용 여부와 최대 기간
-로그인 상태의 비밀번호 변경 기능 포함 여부
+계정 설정의 비밀번호 변경 기능 포함 여부
 화면 명세 제안 API 4종의 최종 채택
 수정 후보 선택 DTO의 정확한 필드명
 PAST_DATETIME_REJECTED의 최종 응답 enum 채택 여부
@@ -697,7 +743,7 @@ PENDING_COMMAND_EXPIRED reason 필드와 값의 최종 채택 여부
 
 사용자 흐름 16개 전문 수록
 
-수용 기준 28개 작성
+수용 기준 37개 작성
 
 API 경로를 /api/v1 전체 경로로 통일
 
@@ -743,8 +789,8 @@ DLG-EXPIRED-001의 화면별 표시 형식을 구체화했다.
 API: 17종(확정 13종, 화면·API 명세 제안 4종)
 
 사용자 흐름: 16개
-수용 기준: 28개
-테스트 체크 항목: 53개
+수용 기준: 37개
+테스트 체크 항목: 63개
 공통 상태·오류 사전: 21개 행
 20. 최종 자체 평가
 20.1 정합성

@@ -84,12 +84,13 @@ common 제한 원칙: (1) 두 개 이상 모듈에서 실제 재사용이 확인
 2.7.2 인증 방식과 세션 저장소
 이메일 기반 회원가입/로그인 + 서버 세션, 세션 저장소는 Spring Session JDBC로 PostgreSQL에 저장(확정 유지). 인프라 테이블 관리는 2.7.10 참조.
 회원가입은 POST /api/v1/auth/signup에 email, password, passwordConfirmation만 전달한다. 이름·닉네임·표시 이름·시간대는 가입 요청에서 받지 않는다. 가입 성공 시 사용자만 생성하고 자동 로그인이나 세션 생성을 하지 않는다.
+로그인은 POST /api/v1/auth/login에 email과 password만 전달한다. 이메일은 필수이며 앞뒤 공백 제거와 소문자 정규화 후 형식과 최대 254자를 검증한다. 비밀번호는 필수이며 8자 이상 64자 이하로 검증한다. 인증 성공 시 Spring Security 서버 세션을 생성하고 기존 세션이 있으면 세션 고정 공격 방지를 위해 세션 ID를 교체한다. 이미 로그인한 사용자도 제출한 새 인증 정보로 다시 인증하며 성공은 HTTP 200으로 처리하고 중복 로그인 오류를 반환하지 않는다.
 
 2.7.3 세션 만료와 로그인 유지 정책
-비활동 기준 세션 유효시간 12시간, 별도 "로그인 유지" 기능 없음(확정).
+비활동 기준 세션 유효시간은 12시간이며 요청이 발생하면 만료 시각이 갱신되는 기본 유휴 시간 방식을 사용한다. 별도 자동 로그인·로그인 유지 기능과 로그인 상태 유지 체크박스는 제공하지 않고, 동시 로그인 제한도 이번 MVP에서 적용하지 않는다(확정).
 
 2.7.4 세션 쿠키 속성
-HttpOnly, Secure, SameSite=Lax, Path=/(확정). 개발 환경에서 Secure 쿠키 동작은 구현 초기 검증 필요.
+세션 쿠키 이름은 CALTALK_SESSION이다. HttpOnly=true, SameSite=Lax, Path=/를 사용하고 Domain과 Max-Age는 지정하지 않는 세션 쿠키로 설정한다. Secure는 환경별 설정으로 관리하여 로컬 HTTP 개발환경에서는 false, 운영 HTTPS 환경에서는 true로 강제하며 운영에서 false를 허용하지 않는다(확정).
 
 2.7.5 비밀번호 해시
 비밀번호는 필수이며 8자 이상 64자 이하로 제한한다. 문자·숫자·특수문자 조합은 강제하지 않지만 공백만으로 구성된 값은 허용하지 않는다. passwordConfirmation은 password와 정확히 일치해야 하며 저장하지 않는다. 저장 시 Spring Security의 기본 강도를 사용하는 BCrypt로 해시하고 password_hash에 해시만 저장한다(기술 설계 확정안).
@@ -99,6 +100,9 @@ HttpOnly, Secure, SameSite=Lax, Path=/(확정). 개발 환경에서 Secure 쿠�
 
 2.7.7 CORS
 운영: 불필요(동일 출처). 개발: http://localhost:5173만 허용.
+
+2.7.7.1 Spring Security 웹 오류 정책
+POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. 인증되지 않은 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족은 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
 
 2.7.8 사용자 소유권 검증
 모든 일정 조회·수정·삭제 쿼리에 인증 사용자 ID를 강제하고 Application 계층에서 소유자를 재비교한다(확정).
@@ -573,6 +577,39 @@ email은 필수이며 앞뒤 공백 제거와 소문자 변환 후 올바른 이
 
 timestamp와 createdAt은 UTC ISO-8601 문자열이다. fieldErrors가 없는 오류는 빈 배열을 사용한다. 응답에는 password, passwordConfirmation, passwordHash, token, secret을 포함하지 않으며 스택 트레이스, SQL 메시지, 내부 클래스명과 입력 비밀번호를 반환하지 않는다. 사전 중복 조회와 DB 고유 제약조건 위반을 모두 DUPLICATE_EMAIL로 안전하게 변환한다.
 
+2.18.6 로그인 요청·응답과 인증 오류 계약
+요청은 POST /api/v1/auth/login과 다음 JSON을 사용한다.
+
+```json
+{
+  "email": "user@example.com",
+  "password": "example-password"
+}
+```
+
+성공 시 HTTP 200 OK와 다음 JSON을 반환하고 서버 세션을 생성한다. 비밀번호를 재해시하지 않으며 마지막 로그인 시각 컬럼을 추가하지 않는다.
+
+```json
+{
+  "email": "user@example.com",
+  "timezone": "Asia/Seoul"
+}
+```
+
+응답에는 password, passwordHash, token, refreshToken, sessionId, secret을 포함하지 않는다. 이메일 불일치, 비밀번호 불일치, 계정 잠금은 모두 HTTP 401 + INVALID_CREDENTIALS와 다음 공통 오류 JSON으로 동일하게 처리한다.
+
+```json
+{
+  "timestamp": "2026-07-30T00:00:00Z",
+  "status": 401,
+  "code": "INVALID_CREDENTIALS",
+  "message": "이메일 또는 비밀번호를 확인해주세요.",
+  "fieldErrors": []
+}
+```
+
+이메일 존재 여부, 비밀번호 불일치 여부, 계정 잠금 여부, 남은 시도 횟수, 세션 ID와 내부 예외 정보를 노출하지 않는다. 입력 형식 오류는 기존 공통 구조의 HTTP 422 + VALIDATION_ERROR를 사용한다.
+
 상태: 기술 설계 확정안
 
 2.19 보안·개인정보·요청 제한
@@ -586,7 +623,7 @@ Redis 등 별도 인프라를 추가하지 않는 원칙을 유지하며, 카운
 일반 API의 단기 속도 제한	단일 서버 MVP에서는 애플리케이션 메모리 기반 카운터 사용 가능. 재시작 시 초기화되어도 무방한 보조적 제한이다
 서버 재시작 후에도 유지되어야 하는 보안 상태(로그인 실패 누적, 계정 잠금, 연결 코드 실패 횟수)	PostgreSQL에 저장
 엔드포인트	제한 대상	기본값	저장 위치
-로그인 실패(계정)	user_id	15분당 5회 → 15분 잠금	PostgreSQL(login_security_state, 2.9.9)
+로그인 실패(계정)	정규화 이메일로 식별한 user_id	15분당 5회 → 15분 잠금	PostgreSQL(login_security_state, 2.9.9)
 로그인 실패(IP, 보조)	IP	15분당 20회	애플리케이션 메모리
 회원가입(IP)	IP	1시간당 5회	애플리케이션 메모리
 연결 코드 발급(사용자)	user_id	10분당 3회	PostgreSQL(connection_codes.issued_at 카운트, 기존 테이블 그대로 사용)
@@ -601,7 +638,7 @@ IP 기반 보조 제한의 개인정보 최소화: 애플리케이션 메모리 
 초기화되어도 되는 것: 위 표에서 "애플리케이션 메모리"로 표시된 모든 보조·단기 제한.
 반드시 유지되어야 하는 것: 계정 잠금(login_security_state), 연결 코드 실패·발급 이력(connection_codes).
 이 방식은 단일 인스턴스 MVP에서만 사용하며, 다중 인스턴스로 확장이 필요해지면 애플리케이션 메모리 카운터를 공용 제한 저장소로 옮기는 것을 재검토한다.
-모든 기본값은 환경변수로 조정 가능하다. 로그인 실패·연결 코드 검증 실패는 계정/코드 존재 여부를 노출하지 않는 동일한 일반 오류로 응답한다(기존 결정 유지).
+모든 기본값은 환경변수로 조정 가능하다. 로그인 실패·연결 코드 검증 실패는 계정/코드 존재 여부를 노출하지 않는 동일한 일반 오류로 응답한다(기존 결정 유지). 계정 기준 실패가 5회에 도달하면 15분간 잠그되 외부에는 INVALID_CREDENTIALS로 동일하게 응답한다. IP 기준 실패가 15분 동안 20회를 초과하면 HTTP 429 + RATE_LIMITED와 초 단위 Retry-After 헤더를 반환한다. 로그인 성공 시 해당 계정의 실패 횟수를 초기화하고 필요한 범위에서 해당 이메일·IP 조합의 보조 실패 기록도 초기화한다.
 
 상태: 기술 설계 확정안
 
@@ -618,6 +655,9 @@ DB 장애	성공하지 않은 변경을 성공으로 응답하지 않음
 2.21 테스트 전략
 회원가입 단위·MVC 테스트: 이메일 trim·소문자 정규화, 이메일 형식·254자 제한, 비밀번호 8~64자·공백 전용 거부, 비밀번호 확인 일치, 무인증 접근, 201 응답 필드와 민감 필드 부재, 422·409 오류 계약을 검증한다.
 회원가입 통합 테스트: PostgreSQL에서 users 스키마와 기본 시간대 Asia/Seoul, 정규화 이메일 저장, BCrypt 해시와 원문 불일치, 해시 일치 검증, 중복 이메일 사전 조회와 DB 고유 제약 경쟁 경로의 DUPLICATE_EMAIL 변환, 자동 세션 미생성을 검증한다.
+로그인 단위·MVC 테스트: 이메일 정규화·형식·254자 제한, 비밀번호 8~64자, 200 응답 필드와 민감 필드 부재, 422 입력 오류, 계정 부재·비밀번호 불일치·잠금의 동일한 401 INVALID_CREDENTIALS 응답을 검증한다.
+로그인 세션·보안 테스트: CALTALK_SESSION의 HttpOnly·SameSite=Lax·Path=/와 Domain·Max-Age 미지정, 환경별 Secure, 12시간 유휴 만료, 기존 세션 ID 교체, 재로그인, JSON 401 UNAUTHORIZED·403 FORBIDDEN, HTML 리다이렉트 부재를 검증한다.
+로그인 제한 테스트: 정규화 이메일로 식별한 계정의 15분·5회 잠금과 성공 후 초기화, IP의 15분·20회 제한 및 429 RATE_LIMITED·초 단위 Retry-After를 검증한다.
 단위 테스트: 충돌 판정, 지속시간 유지, 낙관적 잠금 버전 비교, conflict_snapshot_hash/candidate_fingerprint 계산(정규화 규칙 포함), login_security_state의 15분 롤링 윈도·잠금 로직
 통합 테스트: 확인 승인의 잠금→검증→소비/재계산 전체 흐름, PWA 충돌 확인이 자연어 흐름과 동일한 승인 엔드포인트를 공유하는지
 동시성 테스트: 동일 confirmationId에 대한 동시 승인 요청 중 하나만 커밋되는지
@@ -708,6 +748,7 @@ OpenAI 모델명 / API 데이터 보관 정책	확정하지 않음	OpenAI 공식
 21	PostgreSQL 호스팅 방식	미정	배포 단계 결정	—	보류
 22	관리형 DB 백업 보관 기간	미정	제공업체 선택 후 확정	—	보류
 23	회원가입 계약	email·password·passwordConfirmation 요청, 201 응답, 422·409·429·500 공통 오류 구조	구현 전 입력·저장·응답 계약 일치	이름·시간대 가입 입력	기술 설계 확정안
+24	로그인 계약	email·password 요청, 200 응답, Spring Security 세션과 CALTALK_SESSION, 일반화된 401 오류	세션 인증과 화면 계약 일치	JWT·자동 로그인	기술 설계 확정안
 2.26 알려진 위험과 대응
 위험	영향	대응
 카카오 5초 제약과 OpenAI 응답 지연	스킬 응답 실패	짧은 내부 타임아웃 + 카카오 규격 정상 응답 내 실패 안내
@@ -764,6 +805,7 @@ OpenAI 실제 데이터 보관 정책 미확정	개인정보 안내가 실제 �
 2.29 다음 단계(화면·기능 명세서)에 전달할 사항
 화면 후보: 회원가입/로그인, 월간 캘린더(+날짜별 목록), 일정 상세, 일정 등록/수정 폼(충돌 시 확인 다이얼로그), 웹 자연어 대화 화면, 카카오 연결 관리 화면, 계정 설정
 회원가입: email, password, passwordConfirmation만 입력받고 이메일은 trim·소문자 정규화 후 최대 254자로 검증한다. 비밀번호는 8~64자이며 공백 전용을 거부하고 확인값과 정확히 일치시킨다. 성공은 201과 email·timezone·createdAt을 반환하며 자동 로그인과 세션 생성은 하지 않는다. 중복 이메일은 409 DUPLICATE_EMAIL, 입력 오류는 422 VALIDATION_ERROR로 처리한다.
+로그인: email과 password만 입력받고 성공은 200과 email·timezone을 반환한다. 실패 원인은 401 INVALID_CREDENTIALS로 일반화하며, 세션 쿠키는 CALTALK_SESSION이고 유휴 만료는 12시간이다. 로그인 성공 후 검증된 내부 상대 복귀 경로가 있으면 우선 이동하고 없으면 홈으로 이동한다. 실패 시 이메일은 유지하고 비밀번호는 지운다.
 화면별 상태: 로딩, 데이터 없음, 입력 오류(422), 권한 없음(403), 인증 만료(401), REPHRASE_REQUIRED, AI_SERVICE_UNAVAILABLE(웹 503), SCHEDULE_CONFLICT→확인 다이얼로그, CONFIRMATION_SUPERSEDED(→"정보가 바뀌어 다시 확인이 필요합니다"와 함께 최신 제안 내용을 자동으로 다시 보여주고 재확인만 받으면 됨), CONFIRMATION_TARGET_GONE(→"해당 일정을 찾을 수 없습니다. 처음부터 다시 시도해주세요")
 계정 잠금 안내: 로그인 실패가 누적되어 잠긴 경우, 정확한 원인을 노출하지 않으면서도 "잠시 후 다시 시도해주세요" 수준의 문구로 안내
 PWA 저장 충돌 확인 다이얼로그와 자연어 대화의 최종 확인이 내부적으로 동일한 서버 로직을 사용한다는 점
