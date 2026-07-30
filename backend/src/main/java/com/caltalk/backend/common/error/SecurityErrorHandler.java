@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
@@ -56,6 +57,7 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
         );
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         objectMapper.writeValue(response.getOutputStream(), errorResponse);
     }
 }
