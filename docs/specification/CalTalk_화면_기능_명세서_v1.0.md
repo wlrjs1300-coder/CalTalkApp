@@ -19,7 +19,7 @@ CalTalk 화면·기능 명세서 v0.2 — 독립 검수 보고서.md
 DLG-EXPIRED-001 표시 방식 명확화	반영	화면별 UX 차이 허용, 서버 모델 공통 원칙	PWA는 다이얼로그, 웹 채팅은 만료 카드로 구체화한다.	UI 명세
 연결 코드 발급 제한 안내 문구 추가	반영	기술 설계서 2.19.2	10분 3회 제한은 이미 확정됐으며 사용자에게 재시도 안내가 필요하다.	SCR-KAKAO-001
 다음 날을 넘는 다중 일자 일정 상한 확정	미반영	기준 문서에서 보류	화면 명세 단계에서 임의 확정할 수 없다.	보류·확인 필요 항목
-비밀번호 최소·최대 길이 확정	미반영	기술 설계 보정사항	실제 구현 단계에서 서버 정책과 함께 확정해야 한다.	보류·확인 필요 항목
+회원가입 비밀번호 길이 정책	반영	기술 설계서 2.7.5, 2.18.5	8자 이상 64자 이하이며 조합 강제 없이 공백 전용 값을 거부하는 것으로 확정했다.	SCR-AUTH-001, 공통 오류 사전, 테스트, 구현 전달사항
 카카오 PoC 성공을 전제로 한 공개 기능 표현	미반영	서비스 기획서 20.4, 기술 설계서 2.25·2.26	실제 스킬과 응답 제약은 PoC 전이다.	랜딩, PoC 전달사항
 
 3. CalTalk 화면·기능 명세서 v1.0 Final
@@ -118,14 +118,15 @@ CalTalk MVP의 화면과 기능을 하나의 문서로 통합하여 인증, PWA 
 6.2 SCR-AUTH-001 — 회원가입
 목적: 이메일과 비밀번호로 계정을 만든다.
 진입 조건: 비로그인.
-입력: 이메일, 비밀번호, 비밀번호 확인. 모두 필수.
-검증: 이메일 형식, 서버 정책과 동일한 비밀번호 길이, 비밀번호 확인 일치.
+입력: email, password, passwordConfirmation. 모두 필수이며 이름·닉네임·표시 이름·시간대는 입력받지 않는다.
+이메일 검증: 앞뒤 공백 제거와 소문자 정규화 후 올바른 이메일 형식과 최대 254자를 검증한다.
+비밀번호 검증: 8자 이상 64자 이하이며 문자·숫자·특수문자 조합은 강제하지 않는다. 공백만으로 구성된 값은 허용하지 않고 passwordConfirmation은 password와 정확히 일치해야 한다.
 정상 상태: 빈 폼.
 로딩: 가입 버튼 비활성화.
-422: 필드별 오류.
-중복 이메일: 계정 노출을 확대하지 않는 서버 문구 사용.
-429: 잠시 후 재시도 안내.
-성공: 자동 로그인하지 않고 /login으로 이동해 “가입이 완료되었습니다. 로그인해주세요.”를 표시한다.
+422 VALIDATION_ERROR: 공통 오류 JSON의 fieldErrors를 입력 필드와 연결한다.
+409 DUPLICATE_EMAIL: 계정 노출을 확대하지 않는 서버 문구를 사용한다.
+429 RATE_LIMITED: 잠시 후 재시도하도록 안내한다.
+성공: HTTP 201 응답의 email, timezone, createdAt을 확인한 뒤 자동 로그인이나 세션 생성 없이 /login으로 이동해 “가입이 완료되었습니다. 로그인해주세요.”를 표시한다.
 취소: /.
 접근성: 비밀번호 표시·숨김, 오류 연결.
 관련 API: POST /api/v1/auth/signup.
@@ -326,22 +327,41 @@ HTTP/채널	코드·상태	사용자 메시지 원칙	화면 처리
 409	CONFLICT_ACKNOWLEDGEMENT_REQUIRED	최신 충돌 재확인 필요	같은 UI 갱신
 409	CONFIRMATION_SUPERSEDED	정보 변경으로 최신 후보 재확인 필요	새 confirmationId로 갱신
 409	중복·상태 변경	이미 처리됐거나 상태가 바뀜	성공으로 중복 표시 금지
-422	입력 검증 오류	필드별 오류	입력값 보존
-429	요청 제한	잠시 후 재시도	실행 제한
+409	DUPLICATE_EMAIL	이미 사용할 수 없는 이메일이라는 안전한 안내	회원가입 폼 유지
+422	VALIDATION_ERROR	입력한 내용을 다시 확인해주세요.	fieldErrors를 필드와 연결하고 입력값 보존
+429	RATE_LIMITED	잠시 후 재시도	실행 제한
 503	AI_SERVICE_UNAVAILABLE	직접 캘린더 기능은 계속 사용 가능	AI 장애 배너
-5xx	SERVER_ERROR	저장 성공으로 표시하지 않음	재시도
+500	SERVER_ERROR	저장 성공으로 표시하지 않음	재시도
 네트워크	연결 실패	연결 확인 안내	입력 보존, 임의 재실행 금지
 오프라인	OFFLINE	완전한 오프라인 일정 기능 미지원	전역 배너
+
+REST API 오류 JSON은 timestamp, status, code, message, fieldErrors를 사용한다. timestamp는 UTC ISO-8601 문자열이며 fieldErrors의 각 항목은 field, code, message로 구성한다. 필드 오류가 없으면 빈 배열을 사용한다. 스택 트레이스, SQL 메시지, 내부 클래스명과 입력 비밀번호는 반환하지 않는다.
+
+```json
+{
+  "timestamp": "2026-07-30T00:00:00Z",
+  "status": 422,
+  "code": "VALIDATION_ERROR",
+  "message": "입력한 내용을 다시 확인해주세요.",
+  "fieldErrors": [
+    {
+      "field": "email",
+      "code": "INVALID_EMAIL",
+      "message": "올바른 이메일 형식이 아닙니다."
+    }
+  ]
+}
+```
 
 카카오 채널에서는 동일한 의미의 상태를 카카오 스킬 규격의 정상 응답 JSON 내부 안내 문구로 변환한다.
 9. 사용자 흐름 16개
 9.1 첫 방문 → 회원가입 → 로그인 → 오늘 일정
 시작 조건: 비로그인.
 행동: 회원가입 제출 후 로그인 화면에서 다시 로그인.
-시스템: 가입 시 사용자만 생성하고 자동 로그인하지 않는다. 로그인 성공 시 세션을 발급한다.
+시스템: email, password, passwordConfirmation만 제출한다. 이메일을 trim·소문자 정규화하고 BCrypt 해시와 기본 시간대 Asia/Seoul을 저장한다. 가입 시 사용자만 생성하고 자동 로그인이나 세션 생성을 하지 않는다. 로그인 성공 시에만 세션을 발급한다.
 API: 회원가입, 로그인, 사용자 정보, 오늘 일정 조회.
 DB 변경: 가입 성공 시 사용자 생성.
-실패: 422, 중복 이메일, 429, 로그인 공통 실패.
+실패: 422 VALIDATION_ERROR, 409 DUPLICATE_EMAIL, 429 RATE_LIMITED, 로그인 공통 실패.
 완료: 홈에 오늘 일정 최대 3건 표시.
 9.2 월간 캘린더 → 날짜 선택 → 일정 등록
 날짜 선택 후 목록으로 스크롤하고 등록 화면에 날짜를 초기화한다.
@@ -418,8 +438,11 @@ PWA 계정과 일정 자체는 삭제하지 않는다.
 성공 시 세션을 종료하고 시작 화면으로 이동한다.
 서버 오류 시 계정과 데이터는 유지되고 오류만 표시한다.
 10. 수용 기준
-Given 비로그인 사용자, When 유효한 회원가입을 제출하면, Then 자동 로그인 없이 로그인 화면으로 이동한다.
+Given 비로그인 사용자, When 유효한 회원가입을 제출하면, Then 201과 정규화된 email·Asia/Seoul timezone·UTC createdAt을 받고 자동 로그인 없이 로그인 화면으로 이동한다.
 Given 가입 직후, When 로그인 화면에 진입하면, Then 가입 완료 안내가 표시된다.
+Given 잘못된 이메일·비밀번호·확인값, When 회원가입을 제출하면, Then 422 VALIDATION_ERROR와 필드별 오류를 받는다.
+Given 정규화 후 같은 이메일이 이미 존재, When 회원가입을 제출하면, Then 409 DUPLICATE_EMAIL을 받고 사용자가 추가되지 않는다.
+Given 회원가입 성공 또는 실패, When 응답을 확인하면, Then password·passwordConfirmation·passwordHash·token·secret이 포함되지 않는다.
 Given 로그인 실패 또는 잠금, When 응답을 표시하면, Then 계정 존재 여부를 구분할 수 없다.
 Given 오늘 일정이 4건 이상, When 홈을 열면, Then 3건과 전체 보기 액션만 표시된다.
 Given 월간 캘린더, When 스크롤하면, Then 상단 월 이동 바만 고정되고 그리드는 스크롤된다.
@@ -446,7 +469,7 @@ Given 시간대 변경, When 저장하면, Then UTC 값은 유지되고 사용�
 Given 탈퇴 체크 미선택, When 화면을 보면, Then 삭제 버튼은 비활성화된다.
 Given 탈퇴 처리 오류, When 응답하면, Then 계정과 체크 상태가 유지된다.
 Given 다른 사용자 일정 URL, When 접근하면, Then 일정 내용 없이 403 또는 안전한 미노출 응답을 받는다.
-최종 수용 기준은 28개다.
+최종 수용 기준은 31개다.
 11. 화면별 API 연결
 11.1 확정 API
 POST /api/v1/auth/signup
@@ -469,7 +492,7 @@ DELETE /api/v1/users/me
 GET /api/v1/kakao/link
 중복 제거 후 총 17종이다.
 화면·UI	액션	API	캐시 무효화 또는 재조회	일정 DB 변경	결과
-SCR-AUTH-001	가입	POST /api/v1/auth/signup	—	—	—
+SCR-AUTH-001	가입	POST /api/v1/auth/signup	—	없음	users에 정규화 email·BCrypt password_hash·Asia/Seoul timezone·UTC created_at 저장, 201 응답 후 로그인 화면 이동
 SCR-AUTH-002	로그인	POST /api/v1/auth/login	—	—	—
 SCR-HOME-001	오늘 일정	GET /api/v1/schedules	—	—	—
 SCR-CAL-001/002	월·일 일정	GET /api/v1/schedules	—	—	—
@@ -496,6 +519,20 @@ SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
 정상 회원가입·로그인·로그아웃
 
 회원가입 후 자동 로그인 없음
+
+회원가입 요청 필드는 email, password, passwordConfirmation만 사용
+
+이메일 trim·소문자 정규화와 254자 제한
+
+비밀번호 8~64자, 공백 전용 거부와 확인값 일치
+
+회원가입 201 응답의 email·timezone·createdAt과 민감 필드 부재
+
+중복 이메일 409 DUPLICATE_EMAIL
+
+회원가입 요청 제한 429 RATE_LIMITED
+
+회원가입 서버 오류 500 SERVER_ERROR
 
 로그인 실패·잠금 문구 통일
 
@@ -584,10 +621,12 @@ CONFIRMATION_TARGET_GONE
 탈퇴 서버 오류 시 데이터 유지
 
 실제 식별값·토큰·코드의 URL 비노출
-총 46개 점검 항목이다.
+총 53개 점검 항목이다.
 13. 구현 단계 전달사항
 13.1 인증 구현
-비밀번호 최소·최대 길이를 확정하고 프런트엔드 문구와 서버 검증을 일치시킨다.
+회원가입은 email, password, passwordConfirmation만 받고 이름과 시간대는 받지 않는다. 이메일은 trim·소문자 정규화 후 형식과 최대 254자를 검증한다.
+비밀번호는 8자 이상 64자 이하이고 공백 전용 값을 거부하며 조합은 강제하지 않는다. 확인값은 저장하지 않고 BCrypt 해시만 저장한다.
+가입 성공은 201과 email·timezone·createdAt을 반환하되 자동 로그인과 세션 생성은 하지 않는다. 422 VALIDATION_ERROR, 409 DUPLICATE_EMAIL, 429 RATE_LIMITED, 500 SERVER_ERROR와 공통 오류 JSON을 적용한다.
 로그인 실패 내부 분기는 사용자에게 노출하지 않는다.
 세션과 CSRF 쿠키 갱신을 함께 검증한다.
 13.2 PWA 일정 CRUD
@@ -638,7 +677,6 @@ PAST_DATETIME_REJECTED와 PENDING_COMMAND_EXPIRED를 카카오 응답 문구에 
 PoC 성공 전 랜딩에서 카카오 기능을 완성된 기능처럼 홍보하지 않는다.
 PoC가 실패하거나 범위 조정 조건에 해당하면 PWA와 웹 자연어 기능을 유지하고 카카오 공개 문구만 비활성화한다.
 16. 보류·확인 필요 항목
-정확한 비밀번호 최소·최대 길이
 다음 날을 넘는 다중 일자 일정 허용 여부와 최대 기간
 로그인 상태의 비밀번호 변경 기능 포함 여부
 화면 명세 제안 API 4종의 최종 채택
@@ -706,8 +744,8 @@ API: 17종(확정 13종, 화면·API 명세 제안 4종)
 
 사용자 흐름: 16개
 수용 기준: 28개
-테스트 체크 항목: 46개
-공통 상태·오류 사전: 20개 행
+테스트 체크 항목: 53개
+공통 상태·오류 사전: 21개 행
 20. 최종 자체 평가
 20.1 정합성
 서비스 기획서의 MVP 범위와 기술 설계서의 인증, 소유권, confirmation, 충돌, 만료, 멱등성, 시간대, 카카오 연결 원칙을 유지했다.
