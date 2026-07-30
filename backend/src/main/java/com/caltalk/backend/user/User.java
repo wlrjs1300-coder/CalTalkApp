@@ -52,7 +52,7 @@ public class User {
         return email;
     }
 
-    String getPasswordHash() {
+    public String getPasswordHash() {
         return passwordHash;
     }
 
