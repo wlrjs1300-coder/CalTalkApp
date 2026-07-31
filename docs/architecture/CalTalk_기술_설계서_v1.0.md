@@ -276,7 +276,7 @@ candidate_fingerprint = 위 canonical JSON 문자열을 UTF-8로 인코딩한 �
 재승인 무한 반복 방지: 7단계는 "충돌 목록은 그대로인데 사용자 동의만 아직 실려 오지 않은" 경우에만 발생하며, 같은 confirmationId로 conflictAcknowledged: true를 한 번 더 보내면 즉시 종결된다. 충돌 목록 자체가 바뀌는 경우는 6단계에서 새 후보로 자동 전환되므로 같은 조건으로 반복되지 않는다.
 2.8.4 PWA 직접 등록·수정의 충돌 승인(통합 확인 모델)
 
-1. POST /api/v1/schedules 또는 PATCH /api/v1/schedules/{id}  (최초 요청, 승인 플래그 없음)
+1. POST /api/v1/schedules 또는 PATCH /api/v1/schedules/{scheduleId}  (최초 요청, 승인 플래그 없음)
 2. 서버가 입력 검증 + 충돌 계산
    - 충돌 없음 → 즉시 커밋
    - 충돌 있음 → DB 미변경, 2.8.2 절차로 confirmation_requests 생성(origin_channel=PWA),
@@ -536,7 +536,7 @@ PoC에서 기연결 카카오 사용자가 동일 계정의 새 유효 코드를
 2.18.1 리소스와 엔드포인트
 리소스	엔드포인트
 인증·현재 사용자	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout, GET /api/v1/users/me, PATCH /api/v1/users/me
-일정	GET /api/v1/schedules, GET /api/v1/schedules/{scheduleId}, POST /api/v1/schedules, PATCH /api/v1/schedules/{id}, DELETE /api/v1/schedules/{id}
+일정	GET /api/v1/schedules, GET /api/v1/schedules/{scheduleId}, POST /api/v1/schedules, PATCH /api/v1/schedules/{scheduleId}, DELETE /api/v1/schedules/{scheduleId}
 웹 자연어 대화	POST /api/v1/chat/messages
 확인(자연어+PWA 충돌 공통)	POST /api/v1/confirmations/{confirmationId}/approve, POST /api/v1/confirmations/{confirmationId}/cancel
 카카오 연결 코드	POST /api/v1/kakao/link-codes, POST /api/v1/kakao/links/revoke
@@ -833,6 +833,39 @@ from·to 누락, 형식 오류, 오프셋 없는 시각은 기존 공통 검증 
 홈은 사용자 시간대 기준 오늘 시작과 다음 날 시작, 월간 캘린더는 표시 월 시작과 다음 달 시작, 선택 날짜 목록은 해당 날짜 시작과 다음 날 시작을 각각 offset date-time의 from·to로 계산해 기간 조회 API를 호출한다. 서버와 DB는 UTC 절대 시각을 유지한다. 시간대 변경 뒤에는 사용자 정보, 오늘 일정, 월간 캘린더, 선택 날짜 목록과 열린 일정 상세를 무효화하거나 재조회하고 새 시간대로 표시와 날짜 포함 여부만 다시 계산한다.
 
 기존 `idx_schedules_owner_start (owner_user_id, start_at)`는 소유자 필터와 시작 시각 범위 축소를 지원하므로 이번 단계에서 새 인덱스를 제안하지 않는다. end_at 겹침 조건과 최종 정렬 비용은 실제 실행 계획과 데이터 규모로 후속 관찰한다. 목록 조회는 소유 일정과 응답 필드를 한 번의 조회로 가져오며 일정별 추가 조회를 발생시키지 않아 N+1을 방지한다.
+
+상태: 기술 설계 확정안
+
+2.18.12 일정 수정·삭제 요청·응답 계약
+일정 수정은 `PATCH /api/v1/schedules/{scheduleId}`를 사용하는 부분 수정이다. CALTALK_SESSION으로 인증된 현재 사용자의 일정만 `scheduleId + owner_user_id` 조건으로 한 번에 조회하며, 일정이 없거나 다른 사용자 소유이면 존재 여부를 구분하지 않고 HTTP 404 + SCHEDULE_NOT_FOUND를 반환한다. 요청 JSON은 title·startAt·endAt·location·version만 허용하고 version은 필수인 0 이상의 정수다. title·startAt·endAt·location 중 최소 하나는 필드로 전달해야 하며 version만 있는 요청과 계약 외 필드는 HTTP 422 + VALIDATION_ERROR로 거부한다.
+
+PATCH에서 전달하지 않은 필드는 기존 값을 유지한다. title은 전달 시 null을 허용하지 않고 trim 후 1자 이상 200자 이하여야 한다. startAt과 endAt은 전달 시 null을 허용하지 않는 ISO-8601 offset date-time이며 UTC Instant로 변환한다. location은 필드 미전달이면 유지(KEEP), null이면 삭제(REMOVE), 문자열이면 trim 후 저장(SET)하고 trim 결과가 빈 문자열이면 REMOVE로 정규화한다. 최종 후보의 endAt은 startAt보다 반드시 늦어야 하며 관계 오류는 endAt의 INVALID_TIME_RANGE로 처리한다.
+
+요청 version이 현재 schedules.version과 다르면 HTTP 409 + SCHEDULE_VERSION_CONFLICT, message “일정이 다른 곳에서 변경되었습니다.”, 빈 fieldErrors를 반환하고 최신 일정 본문은 포함하지 않는다. 클라이언트는 상세를 다시 조회한 뒤 사용자 입력을 유지한 상태로 재시도 여부를 결정하며 자동 덮어쓰지 않는다. version이 일치하고 정규화된 최종 후보가 기존 값과 완전히 같으면 HTTP 200 멱등 성공으로 현재 ScheduleResponse를 반환하고 updatedAt·version을 변경하거나 UPDATE 이력을 추가하지 않는다.
+
+실제 변경이 있고 충돌이 없으면 현재 값 전체를 before, 최종 값 전체를 after로 하는 change_type UPDATE·source_channel PWA·현재 changed_by_user_id 이력을 일정 수정과 같은 트랜잭션에 저장한다. JPA `@Version` 증가와 `updatedAt` 갱신을 flush한 뒤 증가된 version과 UTC updatedAt이 포함된 ScheduleResponse를 HTTP 200, `Cache-Control: no-store`로 반환한다. location의 실제 null은 before/after에도 null로 기록한다.
+
+최종 후보의 충돌은 현재 일정 자신을 제외하고 다음 조건으로 조회하며 startAt, id 오름차순으로 정렬한다.
+
+```sql
+WHERE existing.owner_user_id = :currentUserId
+  AND existing.id <> :targetScheduleId
+  AND existing.start_at < :candidateEndAt
+  AND existing.end_at > :candidateStartAt
+ORDER BY existing.start_at ASC, existing.id ASC
+```
+
+충돌이 있으면 일정과 이력을 변경하지 않고 HTTP 409 + SCHEDULE_CONFLICT, confirmationId와 conflicts를 반환한다. 기존 confirmation_requests 통합 모델에 origin_channel PWA, command_type UPDATE_EVENT, 현재 사용자, target_schedule_id, 검증한 요청 version을 target_schedule_version으로 저장한다. title·start_at·end_at은 요청에서 변경하지 않은 필드를 null로 저장하고 location은 KEEP·SET·REMOVE 및 SET일 때만 location_value를 저장하는 델타 규칙을 유지한다. candidate_fingerprint의 canonical 순서는 command_type, target_schedule_id, title, start_at, end_at, location_action, location_value이며 충돌 목록의 id+version으로 conflict_snapshot_hash를 계산한다. 새 요청은 PENDING·conflict_acknowledged=false·5분 만료다.
+
+승인은 `POST /api/v1/confirmations/{confirmationId}/approve`의 2.8.3 절차를 재사용한다. confirmation 잠금, 사용자·상태·만료·대상 존재와 소유권, target_schedule_version, 저장 델타 적용 결과, 시간 범위와 최신 충돌 해시를 재검증한다. 대상이 사라지면 CONFIRMATION_TARGET_GONE, 대상 version 또는 충돌 목록이 바뀌면 기존 confirmation을 SUPERSEDED로 바꾸고 최신 기준의 새 confirmation과 CONFIRMATION_SUPERSEDED를 반환한다. 이 승인 경로에는 직접 PATCH·DELETE의 SCHEDULE_VERSION_CONFLICT를 사용하지 않고 기존 자동 재계산 계약을 유지한다. 조건이 같고 conflictAcknowledged=true이면 일정 UPDATE, 전체 before/after 이력, CONSUMED 전환을 같은 트랜잭션에서 한 번만 처리한다. STALE_CONFIRMATION은 계속 보류하며 새 코드로 추가하지 않는다.
+
+일정 삭제는 `DELETE /api/v1/schedules/{scheduleId}?version={version}`을 사용한다. DELETE 본문과 If-Match 헤더는 사용하지 않으며 version은 필수인 0 이상의 정수다. 현재 사용자 일정만 `scheduleId + owner_user_id` 조건으로 조회하고 없음·타 사용자 소유는 동일한 HTTP 404 + SCHEDULE_NOT_FOUND로 처리한다. version 불일치는 PATCH와 같은 HTTP 409 + SCHEDULE_VERSION_CONFLICT를 반환한다. PWA의 삭제 확인 모달은 클라이언트 책임이며 직접 DELETE에 confirmation_requests를 만들지 않는다.
+
+삭제 성공은 같은 트랜잭션에서 삭제 직전 전체 값을 before, after를 null로 하는 change_type DELETE·source_channel PWA 이력을 기록한 뒤 일정을 즉시 하드 삭제하고 HTTP 204 No Content, 빈 본문, `Cache-Control: no-store`를 반환한다. 이 DELETE 이력은 schedules 삭제 시 `schedule_change_history.schedule_id ON DELETE CASCADE`에 의해 기존 이력과 함께 제거된다. 따라서 MVP는 DELETE 이력을 영구 보존하지 않고 별도 감사 로그·soft delete·FK 변경을 추가하지 않는다. 같은 ID의 재삭제는 404 SCHEDULE_NOT_FOUND다.
+
+PATCH와 DELETE는 공개 경로나 CSRF 예외에 추가하지 않는다. 미인증은 401 UNAUTHORIZED, CSRF 누락·불일치는 403 FORBIDDEN이다. scheduleId 또는 version의 누락·형식·범위 오류와 PATCH 필드 검증은 422 VALIDATION_ERROR를 사용한다. 성공 후 클라이언트는 열린 상세, 홈 오늘 일정, 월간 캘린더와 선택 날짜 목록을 무효화하거나 재조회한다. 수정은 전후 날짜 범위가 모두 갱신 대상이며, 삭제 성공은 상세를 닫고 안전한 목록이나 캘린더로 이동한다.
+
+테스트는 각 부분 필드 수정, location KEEP·SET·REMOVE, 시간 검증, 계약 외 필드, 무변경 멱등 요청, version 일치·불일치, 자기 자신 제외 충돌, UPDATE_EVENT confirmation 생성·승인·SUPERSEDED·대상 소멸, UPDATE 전체 스냅샷 이력, 삭제 204·재삭제 404·버전 충돌·CASCADE 이력 제거, 소유권 은닉, 인증·CSRF와 캐시 갱신 범위를 포함한다.
 
 상태: 기술 설계 확정안
 

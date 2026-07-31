@@ -179,7 +179,7 @@ CalTalk MVP의 화면과 기능을 하나의 문서로 통합하여 인증, PWA 
 액션: 수정, 삭제, 뒤로가기.
 404: 존재하지 않거나 삭제되었거나 다른 사용자 소유인 일정을 구분하지 않고 SCHEDULE_NOT_FOUND로 안내한 뒤 안전한 목록으로 이동.
 삭제: DLG-DELETE-001을 연다.
-관련 API: GET /api/v1/schedules/{scheduleId}, DELETE /api/v1/schedules/{id}.
+관련 API: GET /api/v1/schedules/{scheduleId}, DELETE /api/v1/schedules/{scheduleId}?version={version}.
 완료 기준: 다른 사용자의 일정 내용이 노출되지 않는다.
 6.8 SCR-SCHED-002 — 일정 등록
 입력: 제목, 날짜, 시작 시간, 종료 시간, 장소, 다음 날 종료 토글.
@@ -206,13 +206,16 @@ PWA 직접 입력은 과거 일정도 허용하되 절대 날짜와 시간을 �
 6.9 SCR-SCHED-003 — 일정 수정
 입력은 기존 저장값으로 초기화한다.
 수정 가능 필드: 제목, 날짜, 시작, 종료, 장소.
+저장 요청은 변경한 필드와 현재 상세 응답의 필수 version을 보내는 부분 수정이다. 변경할 필드 없이 version만 보내지 않는다.
+장소를 수정하지 않으면 필드를 보내지 않고, 장소 삭제는 null 또는 trim 후 빈 문자열, 장소 설정은 trim한 문자열로 보낸다.
 기존 일정이 자정을 넘으면 다음 날 종료 토글을 켠 상태로 연다.
 날짜 변경 시 기존 당일·익일 관계를 유지한다.
 충돌 없음: 즉시 수정.
 충돌 있음: 공통 confirmation 모델로 전환.
 승인 대기 중 대상 버전이나 충돌 목록이 바뀌면 최신 후보로 자동 갱신해 재확인을 받는다.
 대상이 삭제됐으면 수정 폼으로 복구하지 않고 대상 없음 안내 후 목록으로 이동한다.
-관련 API: PATCH /api/v1/schedules/{id}, 승인·취소 API.
+버전 충돌: 입력을 유지하고 최신 상세 재조회 안내를 표시하며 자동 덮어쓰지 않는다.
+관련 API: PATCH /api/v1/schedules/{scheduleId}, 승인·취소 API.
 완료 기준: 다른 사용자 일정과 삭제된 일정은 수정할 수 없다.
 6.10 SCR-CHAT-001 — 웹 자연어 일정 관리
 목적: 자연어로 일정 조회·생성·수정.
@@ -348,6 +351,7 @@ HTTP/채널	코드·상태	사용자 메시지 원칙	화면 처리
 404	CONFIRMATION_NOT_FOUND	만료됐거나 이미 처리된 요청	확인 UI 종료
 404	CONFIRMATION_TARGET_GONE	대상 일정이 없어 처음부터 재시도 필요	대상 없음 UI
 409	SCHEDULE_CONFLICT	겹치는 일정 경고	확인 다이얼로그
+409	SCHEDULE_VERSION_CONFLICT	“일정이 다른 곳에서 변경되었습니다.”	입력 유지, 최신 상세 재조회 후 재시도
 409	CONFLICT_ACKNOWLEDGEMENT_REQUIRED	최신 충돌 재확인 필요	같은 UI 갱신
 409	CONFIRMATION_SUPERSEDED	정보 변경으로 최신 후보 재확인 필요	새 confirmationId로 갱신
 409	중복·상태 변경	이미 처리됐거나 상태가 바뀜	성공으로 중복 표시 금지
@@ -428,7 +432,7 @@ title, startAt, endAt, location만 제출하며 화면의 날짜·시간을 UTC 
 완료: 한 번만 수정되고 변경 이력이 기록된다.
 9.6 일정 상세 → 삭제
 삭제 확인에서 비가역성을 고지한다.
-승인 시 본인 소유를 재검증하고 즉시 하드 삭제한다.
+사용자가 확인한 DELETE 요청에서 본인 소유와 version을 재검증하고 즉시 하드 삭제한다.
 관련 변경 이력은 CASCADE 정책에 따라 삭제된다.
 실패 시 성공 화면을 표시하지 않는다.
 9.7 자연어 일정 조회
@@ -563,8 +567,8 @@ PATCH /api/v1/users/me
 GET /api/v1/schedules
 GET /api/v1/schedules/{scheduleId}
 POST /api/v1/schedules
-PATCH /api/v1/schedules/{id}
-DELETE /api/v1/schedules/{id}
+PATCH /api/v1/schedules/{scheduleId}
+DELETE /api/v1/schedules/{scheduleId}
 POST /api/v1/chat/messages
 POST /api/v1/confirmations/{confirmationId}/approve
 POST /api/v1/confirmations/{confirmationId}/cancel
@@ -580,9 +584,9 @@ SCR-AUTH-002	로그인	POST /api/v1/auth/login	GET /api/v1/users/me 사용자 �
 SCR-HOME-001	오늘 일정	GET /api/v1/schedules	—	—	—
 SCR-CAL-001/002	월·일 일정	GET /api/v1/schedules	—	—	—
 SCR-SCHED-001	상세	GET /api/v1/schedules/{scheduleId}	—	없음	200과 Cache-Control no-store, 본인 일정 상세 또는 존재 여부를 숨긴 404 SCHEDULE_NOT_FOUND
-SCR-SCHED-001	삭제	DELETE /api/v1/schedules/{id}	—	—	—
+SCR-SCHED-001	삭제	DELETE /api/v1/schedules/{scheduleId}?version={version}	성공 시 열린 상세·홈 오늘 일정·월간 캘린더·선택 날짜 목록 무효화 또는 재조회	현재 사용자 일정 하드 삭제, history는 ON DELETE CASCADE	204 No Content와 Cache-Control no-store, 상세 닫기 후 안전한 목록 이동
 SCR-SCHED-002	등록	POST /api/v1/schedules	성공 시 선택 날짜 일정 목록, 홈의 오늘 일정, 월간 캘린더를 무효화하거나 재조회	충돌 없을 때 일정과 CREATE 이력을 한 트랜잭션으로 생성	201, Cache-Control no-store, Location과 일정 상세를 받고 입력 화면 닫기·성공 안내·사용자 시간대 표시
-SCR-SCHED-003	수정	PATCH /api/v1/schedules/{id}	—	—	—
+SCR-SCHED-003	수정	PATCH /api/v1/schedules/{scheduleId}	성공 시 상세 응답 반영, 수정 전후 범위의 홈 오늘 일정·월간 캘린더·선택 날짜 목록 무효화 또는 재조회	충돌 없으면 일정과 UPDATE 이력을 한 트랜잭션으로 수정	200과 Cache-Control no-store 또는 충돌 confirmation
 SCR-CHAT-001	메시지	POST /api/v1/chat/messages	—	—	—
 DLG-CHAT-TARGET-001	수정 대상 후보 선택	POST /api/v1/chat/messages 재사용	해당 없음	없음	자연어 수정 최종 확인 카드로 전환
 DLG-CONFLICT-001	승인	POST /api/v1/confirmations/{confirmationId}/approve	—	—	—
@@ -608,6 +612,21 @@ SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
 일정 상세는 `GET /api/v1/schedules/{scheduleId}`를 사용하고 HTTP 200, `Cache-Control: no-store`와 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. scheduleId 형식 오류는 HTTP 422 + VALIDATION_ERROR다. 일정이 없거나 다른 사용자 소유이면 존재 여부를 구분하지 않고 동일한 HTTP 404 + SCHEDULE_NOT_FOUND를 반환한다. 두 GET API는 세션 인증이 필수이고 공개 경로가 아니지만 CSRF 토큰은 요구하지 않는다.
 
 홈은 사용자 시간대의 오늘 시작·다음 날 시작, 월간 캘린더는 표시 월 시작·다음 달 시작, 선택 날짜 목록은 선택일 시작·다음 날 시작을 offset date-time의 from·to로 계산한다. 일정 상세는 일정 ID로 조회한다. 시간대 변경 후 사용자 정보와 이 네 일정 화면 데이터를 무효화하거나 재조회하고 날짜·요일·시각·오늘 여부·선택 날짜 포함 여부를 새 시간대로 다시 계산하되 DB의 UTC 절대 시각은 변경하지 않는다.
+
+11.4 일정 수정·삭제 계약
+일정 수정은 `PATCH /api/v1/schedules/{scheduleId}`의 부분 수정이다. 요청은 title·startAt·endAt·location·version만 허용하고 version은 필수인 0 이상의 정수이며, 나머지 네 필드 중 하나 이상을 전달한다. 전달하지 않은 필드는 기존 값을 유지한다. title·startAt·endAt은 전달 시 null을 허용하지 않고 title은 trim 후 필수·최대 200자, 시각은 offset date-time이다. location 미전달은 유지, null 또는 trim 후 빈 문자열은 삭제, 그 외 문자열은 trim 후 설정한다. 최종 endAt은 startAt보다 늦어야 하고 계약 외 필드와 검증 오류는 422 VALIDATION_ERROR다.
+
+현재 사용자 일정만 scheduleId와 소유자 조건으로 조회한다. 없음·타 사용자 소유는 동일한 404 SCHEDULE_NOT_FOUND다. 요청 version 불일치는 409 SCHEDULE_VERSION_CONFLICT와 빈 fieldErrors만 반환하며 최신 일정은 포함하지 않는다. 입력은 유지하고 상세 재조회를 안내하며 자동 덮어쓰지 않는다. version이 일치하지만 정규화된 값이 모두 같으면 200 멱등 성공으로 처리하고 updatedAt·version·이력을 변경하지 않는다.
+
+실제 변경과 UPDATE 전체 before/after 스냅샷은 한 트랜잭션으로 저장한다. 성공은 증가한 version과 갱신된 UTC updatedAt을 포함한 ScheduleResponse, HTTP 200과 `Cache-Control: no-store`다. 충돌 검사는 자신을 제외한 현재 사용자 일정에 `startAt < candidateEndAt AND endAt > candidateStartAt`을 적용하고 startAt·id 순으로 정렬한다. 충돌 시 DB를 변경하지 않고 409 SCHEDULE_CONFLICT와 confirmationId·conflicts를 반환한다.
+
+수정 confirmation은 기존 UPDATE_EVENT 델타 모델을 사용한다. target_schedule_id와 검증한 target_schedule_version, 변경된 title·start_at·end_at만 저장하고 location_action KEEP·SET·REMOVE를 구분하며 SET일 때만 location_value를 저장한다. PENDING·5분 만료·후보 지문·충돌 해시를 유지한다. 승인 중 대상 version이나 충돌 목록이 바뀌면 직접 수정의 버전 오류 대신 기존 CONFIRMATION_SUPERSEDED와 최신 confirmation을 사용하고, 대상이 사라지면 CONFIRMATION_TARGET_GONE을 사용한다. 유효한 승인만 일정·UPDATE 이력·CONSUMED를 한 트랜잭션으로 반영한다.
+
+일정 삭제는 `DELETE /api/v1/schedules/{scheduleId}?version={version}`을 사용한다. version은 필수인 0 이상의 정수이며 DELETE 본문과 If-Match는 사용하지 않는다. 직접 PWA 삭제는 DLG-DELETE-001에서 비가역성을 확인한 뒤 호출하고 서버 confirmation은 만들지 않는다. 없음·타 사용자 소유는 404 SCHEDULE_NOT_FOUND, version 불일치는 409 SCHEDULE_VERSION_CONFLICT다.
+
+삭제 성공은 HTTP 204 No Content, 빈 본문과 `Cache-Control: no-store`이며 즉시 하드 삭제한다. schedule_change_history는 schedule_id ON DELETE CASCADE이므로 기존 이력과 삭제 직전 기록한 DELETE 이력도 함께 제거되어 영구 보존되지 않는다. 별도 감사 로그와 soft delete는 추가하지 않는다. 재삭제는 404다. PATCH·DELETE는 세션 인증과 CSRF 토큰이 필수이며 미인증은 401, CSRF 실패는 403이다.
+
+수정 성공 뒤 상세 응답을 반영하고 전후 날짜 범위의 홈 오늘 일정·월간 캘린더·선택 날짜 목록을 무효화하거나 재조회한다. 수정 충돌은 기존 다이얼로그에서 사용자 시간대로 표시하고 승인·다른 시간·취소를 제공한다. 삭제 성공 뒤 상세를 닫고 안전한 목록으로 이동하며 상세와 세 일정 목록 캐시를 무효화한다. 테스트는 부분 수정, location 세 상태, 무변경, version, 충돌·confirmation·SUPERSEDED, UPDATE 이력, 삭제 204·CASCADE·재삭제, 소유권·CSRF를 포함한다.
 
 12. 테스트 체크리스트
 
@@ -978,6 +997,8 @@ userId·ownerUserId로 일정 소유자 변경 불가
 종료 시간 자동 채움과 다음 날 토글을 구현한다.
 충돌 시 클라이언트 승인 플래그가 아니라 서버 confirmation을 사용한다.
 일정 조회는 인증된 `GET /api/v1/schedules?from={from}&to={to}`와 `GET /api/v1/schedules/{scheduleId}`를 사용한다. 기간 조회는 현재 사용자의 일정만 겹침 조건으로 한 번에 조회해 startAt·endAt·id 순으로 반환하고 일정별 추가 조회를 만들지 않는다. 목록은 items 래퍼, 빈 결과는 200, 상세의 없음·타 사용자 소유는 동일한 404 SCHEDULE_NOT_FOUND이며 GET에는 CSRF 토큰을 요구하지 않는다.
+일정 수정은 `PATCH /api/v1/schedules/{scheduleId}`에 변경 필드와 필수 version을 보내며 location 미전달·null/빈 값·문자열을 KEEP·REMOVE·SET으로 구분한다. 직접 version 불일치는 SCHEDULE_VERSION_CONFLICT, 수정 confirmation 승인 중 대상 version·충돌 변경은 기존 CONFIRMATION_SUPERSEDED 자동 재계산을 사용한다. 실제 수정은 전체 before/after UPDATE 이력과 함께 저장하고 무변경은 version·updatedAt·이력을 유지한다.
+일정 삭제는 `DELETE /api/v1/schedules/{scheduleId}?version={version}`을 사용하고 PWA 확인 모달 외 서버 confirmation은 만들지 않는다. 성공은 204와 빈 본문이며 하드 삭제와 ON DELETE CASCADE로 변경 이력도 제거한다. PATCH·DELETE는 인증·CSRF 보호를 적용하고 없음·타 사용자 일정은 같은 404로 숨긴다.
 일정 생성은 POST /api/v1/schedules에 title·startAt·endAt·location만 전송한다. title은 trim 후 필수·최대 200자, location은 trim 후 최대 200자이며 빈 값은 null로 처리한다. offset 없는 시각과 endAt이 startAt보다 늦지 않은 요청은 422 VALIDATION_ERROR로 거부하고 PWA 과거 일정은 허용한다.
 세션 principal의 이메일로 현재 사용자를 조회해 owner_user_id를 정하고 요청의 사용자 식별 필드와 계약 외 필드는 거부한다. 사용자 없는 인증 세션은 현재 사용자 조회와 같은 경로로 정리한다. 생성은 세션 인증과 CSRF 보호를 적용하고 일정·CREATE 이력을 하나의 트랜잭션에서 저장한다.
 충돌 없음은 201, Cache-Control no-store, Location과 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. 시각은 UTC Z 표기이며 소유자·인증·민감정보는 반환하지 않는다.
