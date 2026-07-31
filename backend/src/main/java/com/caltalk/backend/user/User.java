@@ -60,6 +60,10 @@ public class User {
         return timezone;
     }
 
+    public void changeTimezone(String timezone) {
+        this.timezone = timezone;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
