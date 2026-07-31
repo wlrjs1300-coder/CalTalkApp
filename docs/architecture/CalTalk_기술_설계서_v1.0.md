@@ -536,7 +536,7 @@ PoC에서 기연결 카카오 사용자가 동일 계정의 새 유효 코드를
 2.18.1 리소스와 엔드포인트
 리소스	엔드포인트
 인증·현재 사용자	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout, GET /api/v1/users/me, PATCH /api/v1/users/me
-일정	GET /api/v1/schedules, POST /api/v1/schedules, PATCH /api/v1/schedules/{id}, DELETE /api/v1/schedules/{id}
+일정	GET /api/v1/schedules, GET /api/v1/schedules/{scheduleId}, POST /api/v1/schedules, PATCH /api/v1/schedules/{id}, DELETE /api/v1/schedules/{id}
 웹 자연어 대화	POST /api/v1/chat/messages
 확인(자연어+PWA 충돌 공통)	POST /api/v1/confirmations/{confirmationId}/approve, POST /api/v1/confirmations/{confirmationId}/cancel
 카카오 연결 코드	POST /api/v1/kakao/link-codes, POST /api/v1/kakao/links/revoke
@@ -790,6 +790,49 @@ conflicts 항목은 id·title·startAt·endAt·location만 포함하고 시각�
 startAt, endAt, createdAt, updatedAt은 UTC ISO-8601 Z 표기다. location이 없으면 null을 반환한다. 응답에는 owner_user_id, userId, email, password, sessionId, token, secret과 confirmation 내부 정보를 포함하지 않는다.
 
 미인증 요청은 HTML 리다이렉트 없이 HTTP 401 + UNAUTHORIZED JSON, CSRF 누락·불일치는 HTTP 403 + FORBIDDEN JSON을 반환한다. Authentication은 있으나 users 레코드가 없으면 2.18.8의 경로를 재사용해 세션을 무효화하고 SecurityContext를 제거하며 CALTALK_SESSION을 삭제한 뒤 사용자 존재 여부 노출 없이 401로 처리한다. 예상하지 못한 서버 오류는 HTTP 500 + SERVER_ERROR 공통 JSON으로 일반화하고 SQL 메시지·내부 클래스명·이메일·세션·쿠키·입력 전체 원문을 노출하지 않는다.
+
+상태: 기술 설계 확정안
+
+2.18.11 일정 조회 요청·응답 계약
+기간별 일정 조회는 `GET /api/v1/schedules?from={from}&to={to}`를 사용한다. 오늘 일정, 월간 캘린더, 선택 날짜 일정 목록을 위한 별도 API는 만들지 않고 모두 이 API를 재사용한다. from과 to는 필수 ISO-8601 offset date-time이며 서버에서 UTC Instant로 변환한다. 오프셋 없는 시각은 거부한다. 조회 기간은 시작 포함·종료 미포함인 반개구간 `[from, to)`이고 from은 to보다 반드시 빨라야 한다.
+
+조회는 현재 인증 사용자의 일정 중 다음 조건을 만족하는 모든 일정을 반환한다.
+
+```sql
+WHERE owner_user_id = :currentUserId
+  AND start_at < :requestedTo
+  AND end_at > :requestedFrom
+ORDER BY start_at ASC, end_at ASC, id ASC
+```
+
+요청 종료 경계에 정확히 끝나는 일정은 제외하고 요청 시작 경계에 정확히 시작하는 일정은 포함한다. 여러 날짜에 걸친 일정도 겹침 조건을 만족하면 포함한다. userId, ownerUserId, email 쿼리 파라미터는 허용하지 않는다. 페이지네이션과 임의의 최대 조회 일수 제한은 MVP 계약에 추가하지 않으며, 운영상 제한값은 후속 결정으로 보류한다.
+
+성공은 HTTP 200과 `Cache-Control: no-store`를 반환한다. 목록은 상세 응답과 분리된 DTO를 사용하며 다음 `items` 래퍼로 반환한다. 빈 결과도 404가 아닌 HTTP 200과 `"items": []`를 반환한다.
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "팀 회의",
+      "startAt": "2026-08-01T01:00:00Z",
+      "endAt": "2026-08-01T02:00:00Z",
+      "location": "회의실 A",
+      "version": 0
+    }
+  ]
+}
+```
+
+목록 항목은 id·title·startAt·endAt·location·version만 포함한다. createdAt·updatedAt은 상세 조회에서만 반환한다. 모든 시각은 UTC ISO-8601 Z 표기이며 ownerUserId·userId·email·내부 해시·confirmation·변경 이력은 반환하지 않는다.
+
+일정 상세 조회는 `GET /api/v1/schedules/{scheduleId}`를 사용한다. 현재 인증 사용자의 소유 일정만 조회하며 성공은 HTTP 200, `Cache-Control: no-store`와 2.18.10의 생성 성공 응답과 같은 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. 일정이 없거나 다른 사용자의 일정이면 존재 여부를 구분하지 않고 동일한 HTTP 404 + SCHEDULE_NOT_FOUND 공통 오류 JSON을 반환한다. 소유자 식별값, confirmation과 변경 이력 내부 정보는 반환하지 않는다.
+
+from·to 누락, 형식 오류, 오프셋 없는 시각은 기존 공통 검증 오류 계약에 따라 HTTP 422 + VALIDATION_ERROR와 fieldErrors를 반환한다. from이 to보다 같거나 늦으면 field `to`, reason `INVALID_TIME_RANGE`로 통일한다. scheduleId 형식 오류도 HTTP 422 + VALIDATION_ERROR로 처리한다. 미인증 요청은 HTTP 401 + UNAUTHORIZED JSON이다. 두 GET API는 인증이 필수이지만 상태를 변경하지 않으므로 CSRF 토큰을 요구하지 않으며 공개 경로에 추가하지 않는다.
+
+홈은 사용자 시간대 기준 오늘 시작과 다음 날 시작, 월간 캘린더는 표시 월 시작과 다음 달 시작, 선택 날짜 목록은 해당 날짜 시작과 다음 날 시작을 각각 offset date-time의 from·to로 계산해 기간 조회 API를 호출한다. 서버와 DB는 UTC 절대 시각을 유지한다. 시간대 변경 뒤에는 사용자 정보, 오늘 일정, 월간 캘린더, 선택 날짜 목록과 열린 일정 상세를 무효화하거나 재조회하고 새 시간대로 표시와 날짜 포함 여부만 다시 계산한다.
+
+기존 `idx_schedules_owner_start (owner_user_id, start_at)`는 소유자 필터와 시작 시각 범위 축소를 지원하므로 이번 단계에서 새 인덱스를 제안하지 않는다. end_at 겹침 조건과 최종 정렬 비용은 실제 실행 계획과 데이터 규모로 후속 관찰한다. 목록 조회는 소유 일정과 응답 필드를 한 번의 조회로 가져오며 일정별 추가 조회를 발생시키지 않아 N+1을 방지한다.
 
 상태: 기술 설계 확정안
 

@@ -177,10 +177,9 @@ CalTalk MVP의 화면과 기능을 하나의 문서로 통합하여 인증, PWA 
 표시: 제목, 연·월·일·요일, 시작, 종료, 장소 또는 “장소 없음”.
 진입 조건: 로그인 및 본인 소유.
 액션: 수정, 삭제, 뒤로가기.
-403: 권한 없음.
-404: 존재하지 않거나 삭제된 일정 안내 후 안전한 목록 이동.
+404: 존재하지 않거나 삭제되었거나 다른 사용자 소유인 일정을 구분하지 않고 SCHEDULE_NOT_FOUND로 안내한 뒤 안전한 목록으로 이동.
 삭제: DLG-DELETE-001을 연다.
-관련 API: GET /api/v1/schedules/{id} 화면 명세 제안, DELETE /api/v1/schedules/{id} 확정.
+관련 API: GET /api/v1/schedules/{scheduleId}, DELETE /api/v1/schedules/{id}.
 완료 기준: 다른 사용자의 일정 내용이 노출되지 않는다.
 6.8 SCR-SCHED-002 — 일정 등록
 입력: 제목, 날짜, 시작 시간, 종료 시간, 장소, 다음 날 종료 토글.
@@ -552,7 +551,7 @@ Given 카카오 코드 입력 완료, When 상태 확인을 누르면, Then 수�
 Given 시간대 변경, When 저장하면, Then UTC 값은 유지되고 사용자 및 일정 캐시가 새 기준으로 갱신된다.
 Given 탈퇴 체크 미선택, When 화면을 보면, Then 삭제 버튼은 비활성화된다.
 Given 탈퇴 처리 오류, When 응답하면, Then 계정과 체크 상태가 유지된다.
-Given 다른 사용자 일정 URL, When 접근하면, Then 일정 내용 없이 403 또는 안전한 미노출 응답을 받는다.
+Given 존재하지 않거나 다른 사용자 소유인 일정 URL, When 접근하면, Then 두 경우를 구분하지 않는 404 SCHEDULE_NOT_FOUND 응답을 받는다.
 최종 수용 기준은 61개다.
 11. 화면별 API 연결
 11.1 확정 API
@@ -562,6 +561,7 @@ POST /api/v1/auth/logout
 GET /api/v1/users/me
 PATCH /api/v1/users/me
 GET /api/v1/schedules
+GET /api/v1/schedules/{scheduleId}
 POST /api/v1/schedules
 PATCH /api/v1/schedules/{id}
 DELETE /api/v1/schedules/{id}
@@ -571,16 +571,15 @@ POST /api/v1/confirmations/{confirmationId}/cancel
 POST /api/v1/kakao/link-codes
 POST /api/v1/kakao/links/revoke
 11.2 화면·API 명세 제안
-GET /api/v1/schedules/{id}
 DELETE /api/v1/users/me
 GET /api/v1/kakao/link
-중복 제거 후 총 17종(확정 14종, 화면·API 명세 제안 3종)이다.
+중복 제거 후 총 17종(확정 15종, 화면·API 명세 제안 2종)이다.
 화면·UI	액션	API	캐시 무효화 또는 재조회	일정 DB 변경	결과
 SCR-AUTH-001	가입	POST /api/v1/auth/signup	—	없음	users에 정규화 email·BCrypt password_hash·Asia/Seoul timezone·UTC created_at 저장, 201 응답 후 로그인 화면 이동
 SCR-AUTH-002	로그인	POST /api/v1/auth/login	GET /api/v1/users/me 사용자 정보 재조회	없음	200 응답과 CALTALK_SESSION 생성 후 안전한 복귀 경로 또는 홈 이동
 SCR-HOME-001	오늘 일정	GET /api/v1/schedules	—	—	—
 SCR-CAL-001/002	월·일 일정	GET /api/v1/schedules	—	—	—
-SCR-SCHED-001	상세	GET /api/v1/schedules/{id} 제안	—	—	—
+SCR-SCHED-001	상세	GET /api/v1/schedules/{scheduleId}	—	없음	200과 Cache-Control no-store, 본인 일정 상세 또는 존재 여부를 숨긴 404 SCHEDULE_NOT_FOUND
 SCR-SCHED-001	삭제	DELETE /api/v1/schedules/{id}	—	—	—
 SCR-SCHED-002	등록	POST /api/v1/schedules	성공 시 선택 날짜 일정 목록, 홈의 오늘 일정, 월간 캘린더를 무효화하거나 재조회	충돌 없을 때 일정과 CREATE 이력을 한 트랜잭션으로 생성	201, Cache-Control no-store, Location과 일정 상세를 받고 입력 화면 닫기·성공 안내·사용자 시간대 표시
 SCR-SCHED-003	수정	PATCH /api/v1/schedules/{id}	—	—	—
@@ -598,6 +597,17 @@ SCR-SET-001	사용자 정보	GET /api/v1/users/me	Cache-Control no-store	없음	
 SCR-SET-001	로그아웃	POST /api/v1/auth/logout	인증 상태와 사용자 캐시 초기화	없음	유효한 CSRF 토큰이면 인증 여부와 무관하게 현재 세션·SecurityContext 종료와 CALTALK_SESSION 삭제 후 204, 시작 화면 이동
 SCR-SET-002	시간대 저장	PATCH /api/v1/users/me	GET /api/v1/users/me 사용자 정보, 홈 화면의 오늘 일정, 월간 캘린더 일정, 선택 날짜 일정 목록, 현재 열려 있는 일정 상세의 표시값을 무효화하거나 다시 조회하고 사용자 시간대 기준으로 날짜·요일·시작 시간·종료 시간·오늘 및 선택 날짜 기준을 다시 계산	없음	200과 email·timezone·createdAt, Cache-Control no-store를 받고 기존 일정의 UTC 절대 저장값을 유지한 채 새 시간대 기준으로 표시 갱신
 SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
+
+11.3 일정 조회 계약
+기간별 일정 조회는 `GET /api/v1/schedules?from={from}&to={to}` 하나를 홈의 오늘 일정, 월간 캘린더, 선택 날짜 일정 목록에서 공통 사용한다. from과 to는 오프셋을 포함한 필수 ISO-8601 date-time이며 시작 포함·종료 미포함인 `[from, to)`를 뜻한다. from은 to보다 빨라야 하고 서버는 두 값을 UTC Instant로 변환한다. 오프셋 없는 시각, 누락·형식 오류, from >= to는 HTTP 422 + VALIDATION_ERROR와 fieldErrors로 처리하며 관계 오류의 field는 to, reason은 INVALID_TIME_RANGE로 통일한다. 임의의 페이지네이션이나 최대 조회 일수는 추가하지 않고 조회 범위 제한은 후속 결정으로 보류한다.
+
+서버는 현재 인증 사용자의 일정에 `startAt < to AND endAt > from` 겹침 조건을 적용한다. 요청 종료 경계에 정확히 끝나는 일정은 제외하고 요청 시작 경계에 정확히 시작하는 일정과 여러 날짜에 걸친 일정은 포함한다. 결과는 startAt, endAt, id 오름차순으로 정렬한다. userId·ownerUserId·email로 조회 대상을 지정할 수 없다.
+
+성공은 HTTP 200, `Cache-Control: no-store`와 `{ "items": [...] }`를 반환한다. 빈 결과는 `{ "items": [] }`이며 404를 사용하지 않는다. 목록 항목은 id·title·startAt·endAt·location·version만 포함하는 별도 DTO이고, createdAt·updatedAt은 상세에만 포함한다. 시각은 UTC ISO-8601 Z 문자열이며 소유자·사용자 이메일·내부 해시·confirmation·변경 이력은 노출하지 않는다.
+
+일정 상세는 `GET /api/v1/schedules/{scheduleId}`를 사용하고 HTTP 200, `Cache-Control: no-store`와 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. scheduleId 형식 오류는 HTTP 422 + VALIDATION_ERROR다. 일정이 없거나 다른 사용자 소유이면 존재 여부를 구분하지 않고 동일한 HTTP 404 + SCHEDULE_NOT_FOUND를 반환한다. 두 GET API는 세션 인증이 필수이고 공개 경로가 아니지만 CSRF 토큰은 요구하지 않는다.
+
+홈은 사용자 시간대의 오늘 시작·다음 날 시작, 월간 캘린더는 표시 월 시작·다음 달 시작, 선택 날짜 목록은 선택일 시작·다음 날 시작을 offset date-time의 from·to로 계산한다. 일정 상세는 일정 ID로 조회한다. 시간대 변경 후 사용자 정보와 이 네 일정 화면 데이터를 무효화하거나 재조회하고 날짜·요일·시각·오늘 여부·선택 날짜 포함 여부를 새 시간대로 다시 계산하되 DB의 UTC 절대 시각은 변경하지 않는다.
 
 12. 테스트 체크리스트
 
@@ -967,6 +977,7 @@ userId·ownerUserId로 일정 소유자 변경 불가
 13.2 PWA 일정 CRUD
 종료 시간 자동 채움과 다음 날 토글을 구현한다.
 충돌 시 클라이언트 승인 플래그가 아니라 서버 confirmation을 사용한다.
+일정 조회는 인증된 `GET /api/v1/schedules?from={from}&to={to}`와 `GET /api/v1/schedules/{scheduleId}`를 사용한다. 기간 조회는 현재 사용자의 일정만 겹침 조건으로 한 번에 조회해 startAt·endAt·id 순으로 반환하고 일정별 추가 조회를 만들지 않는다. 목록은 items 래퍼, 빈 결과는 200, 상세의 없음·타 사용자 소유는 동일한 404 SCHEDULE_NOT_FOUND이며 GET에는 CSRF 토큰을 요구하지 않는다.
 일정 생성은 POST /api/v1/schedules에 title·startAt·endAt·location만 전송한다. title은 trim 후 필수·최대 200자, location은 trim 후 최대 200자이며 빈 값은 null로 처리한다. offset 없는 시각과 endAt이 startAt보다 늦지 않은 요청은 422 VALIDATION_ERROR로 거부하고 PWA 과거 일정은 허용한다.
 세션 principal의 이메일로 현재 사용자를 조회해 owner_user_id를 정하고 요청의 사용자 식별 필드와 계약 외 필드는 거부한다. 사용자 없는 인증 세션은 현재 사용자 조회와 같은 경로로 정리한다. 생성은 세션 인증과 CSRF 보호를 적용하고 일정·CREATE 이력을 하나의 트랜잭션에서 저장한다.
 충돌 없음은 201, Cache-Control no-store, Location과 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. 시각은 UTC Z 표기이며 소유자·인증·민감정보는 반환하지 않는다.
