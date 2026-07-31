@@ -8,7 +8,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.caltalk.backend.common.error.InvalidScheduleTimeRangeException;
+import com.caltalk.backend.common.error.InvalidScheduleQueryRangeException;
 import com.caltalk.backend.common.error.ScheduleConflictException;
+import com.caltalk.backend.common.error.ScheduleNotFoundException;
 import com.caltalk.backend.confirmation.ConfirmationService;
 import com.caltalk.backend.schedule.history.ScheduleChangeHistory;
 import com.caltalk.backend.schedule.history.ScheduleChangeHistoryRepository;
@@ -76,5 +78,38 @@ public class ScheduleService {
         ));
         historyRepository.save(ScheduleChangeHistory.created(schedule, user));
         return ScheduleResponse.from(schedule);
+    }
+
+    @Transactional(readOnly = true)
+    public ScheduleListResponse findInRange(
+            Authentication authentication,
+            Instant from,
+            Instant to,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        User user = currentUserService.requireCurrentUser(authentication, request, response);
+        if (!from.isBefore(to)) {
+            throw new InvalidScheduleQueryRangeException();
+        }
+
+        List<ScheduleListItemResponse> items = scheduleRepository.findInRange(user, from, to)
+                .stream()
+                .map(ScheduleListItemResponse::from)
+                .toList();
+        return new ScheduleListResponse(items);
+    }
+
+    @Transactional(readOnly = true)
+    public ScheduleResponse findById(
+            Authentication authentication,
+            Long scheduleId,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        User user = currentUserService.requireCurrentUser(authentication, request, response);
+        return scheduleRepository.findByIdAndOwner(scheduleId, user)
+                .map(ScheduleResponse::from)
+                .orElseThrow(ScheduleNotFoundException::new);
     }
 }
