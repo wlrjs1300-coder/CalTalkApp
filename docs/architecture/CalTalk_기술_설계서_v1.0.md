@@ -87,6 +87,7 @@ common 제한 원칙: (1) 두 개 이상 모듈에서 실제 재사용이 확인
 로그인은 POST /api/v1/auth/login에 email과 password만 전달한다. 이메일은 필수이며 앞뒤 공백 제거와 소문자 정규화 후 형식과 최대 254자를 검증한다. 비밀번호는 필수이며 8자 이상 64자 이하로 검증한다. 인증 성공 시 Spring Security 서버 세션을 생성하고 기존 세션이 있으면 세션 고정 공격 방지를 위해 세션 ID를 교체한다. 이미 로그인한 사용자도 제출한 새 인증 정보로 다시 인증하며 성공은 HTTP 200으로 처리하고 중복 로그인 오류를 반환하지 않는다.
 로그아웃은 POST /api/v1/auth/logout을 사용한다. 인증된 사용자용 API이지만 유효한 CSRF 토큰을 제시한 미인증 요청도 멱등적으로 처리하여 인증 여부와 관계없이 HTTP 204 No Content를 반환하고 로그인 상태를 노출하지 않는다. 현재 세션만 종료하며 다른 사용자나 다른 세션에는 영향을 주지 않는다.
 현재 사용자 조회는 GET /api/v1/users/me를 사용한다. CALTALK_SESSION으로 인증된 Spring Security Authentication의 principal에서 정규화 이메일을 얻고 users를 다시 조회하며, 클라이언트가 ID·이메일을 요청 파라미터나 본문으로 지정할 수 없다. 성공 응답은 email·timezone·createdAt만 포함하고 브라우저 새로고침과 앱 초기 진입의 인증 상태 복원 기준으로 사용한다.
+현재 사용자 시간대 변경은 PATCH /api/v1/users/me를 사용한다. 공개 경로가 아닌 세션 인증·CSRF 보호 대상이며 요청 본문에는 timezone 하나만 받는다. 인증 principal로 현재 사용자를 다시 조회한 뒤 users.timezone만 변경하고 GET /api/v1/users/me와 동일한 응답 구조를 반환한다.
 
 2.7.3 세션 만료와 로그인 유지 정책
 비활동 기준 세션 유효시간은 12시간이며 요청이 발생하면 만료 시각이 갱신되는 기본 유휴 시간 방식을 사용한다. 별도 자동 로그인·로그인 유지 기능과 로그인 상태 유지 체크박스는 제공하지 않고, 동시 로그인 제한도 이번 MVP에서 적용하지 않는다(확정).
@@ -99,13 +100,13 @@ common 제한 원칙: (1) 두 개 이상 모듈에서 실제 재사용이 확인
 비밀번호는 필수이며 8자 이상 64자 이하로 제한한다. 문자·숫자·특수문자 조합은 강제하지 않지만 공백만으로 구성된 값은 허용하지 않는다. passwordConfirmation은 password와 정확히 일치해야 하며 저장하지 않는다. 저장 시 Spring Security의 기본 강도를 사용하는 BCrypt로 해시하고 password_hash에 해시만 저장한다(기술 설계 확정안).
 
 2.7.6 CSRF 처리(SPA 기준)
-쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더를 사용한다. 회원가입과 로그인의 기존 CSRF 예외 계약은 유지하되 POST 로그아웃은 상태 변경 요청이므로 CSRF 보호 대상이며 예외에 추가하지 않는다. 로그아웃은 인증 여부와 관계없이 유효한 CSRF 토큰이 필요하고, 토큰 누락 또는 불일치는 HTML 리다이렉트 없이 HTTP 403 + FORBIDDEN 공통 오류 JSON으로 응답한다. 로그인 성공 후 세션 교체 시 CSRF 쿠키를 갱신하므로 프런트엔드는 최신 값을 다시 읽는다.
+쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더를 사용한다. 회원가입과 로그인의 기존 CSRF 예외 계약은 유지하되 POST 로그아웃과 PATCH /api/v1/users/me는 상태 변경 요청이므로 CSRF 보호 대상이며 예외에 추가하지 않는다. 토큰 누락 또는 불일치는 HTML 리다이렉트 없이 HTTP 403 + FORBIDDEN 공통 오류 JSON으로 응답한다. 로그인 성공 후 세션 교체 시 CSRF 쿠키를 갱신하므로 프런트엔드는 최신 값을 다시 읽는다.
 
 2.7.7 CORS
 운영: 불필요(동일 출처). 개발: http://localhost:5173만 허용.
 
 2.7.7.1 Spring Security 웹 오류 정책
-POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. POST /api/v1/auth/logout은 인증된 사용자용 경로이되 유효한 CSRF 토큰이 있는 미인증 요청을 멱등 성공으로 처리한다. GET /api/v1/users/me는 공개 경로에 추가하지 않고 세션 인증을 요구하며 GET이므로 CSRF 토큰은 요구하지 않는다. 인증되지 않은 보호 API 요청과 로그아웃 뒤 기존 세션 쿠키로 보낸 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족과 CSRF 실패는 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
+POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. POST /api/v1/auth/logout은 인증된 사용자용 경로이되 유효한 CSRF 토큰이 있는 미인증 요청을 멱등 성공으로 처리한다. GET·PATCH /api/v1/users/me는 공개 경로에 추가하지 않고 세션 인증을 요구하며 PATCH에는 CSRF 토큰도 요구한다. 인증되지 않은 보호 API 요청과 로그아웃 뒤 기존 세션 쿠키로 보낸 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족과 CSRF 실패는 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
 
 2.7.8 사용자 소유권 검증
 모든 일정 조회·수정·삭제 쿼리에 인증 사용자 ID를 강제하고 Application 계층에서 소유자를 재비교한다(확정).
@@ -514,7 +515,7 @@ PoC에서 기연결 카카오 사용자가 동일 계정의 새 유효 코드를
 2.18 API 설계 원칙과 오류 모델
 2.18.1 리소스와 엔드포인트
 리소스	엔드포인트
-인증·현재 사용자	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout, GET /api/v1/users/me
+인증·현재 사용자	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout, GET /api/v1/users/me, PATCH /api/v1/users/me
 일정	GET /api/v1/schedules, POST /api/v1/schedules, PATCH /api/v1/schedules/{id}, DELETE /api/v1/schedules/{id}
 웹 자연어 대화	POST /api/v1/chat/messages
 확인(자연어+PWA 충돌 공통)	POST /api/v1/confirmations/{confirmationId}/approve, POST /api/v1/confirmations/{confirmationId}/cancel
@@ -653,6 +654,55 @@ createdAt은 UTC ISO-8601 문자열이다. 응답에는 id, password, passwordHa
 
 상태: 기술 설계 확정안
 
+2.18.9 현재 사용자 시간대 변경 계약
+PATCH /api/v1/users/me는 현재 로그인 사용자의 표시 시간대를 변경하는 보호 API다. CALTALK_SESSION으로 인증된 Spring Security Authentication의 principal에서 정규화 이메일을 얻어 users를 다시 조회하며, 요청 본문·쿼리·경로에서 사용자 ID나 이메일을 받지 않는다. 공개 경로 또는 CSRF 예외 목록에 추가하지 않는다.
+
+요청 JSON은 다음과 같고 허용 필드는 timezone 하나뿐이다. email, password, userId, createdAt, roles, authorities 등 다른 필드는 받지 않는다.
+
+```json
+{
+  "timezone": "Asia/Seoul"
+}
+```
+
+timezone은 필수 문자열이며 앞뒤 공백을 제거한 뒤 Java `ZoneId`로 해석 가능한 IANA Time Zone ID인지 검증한다. `Asia/Seoul`, `Asia/Tokyo`, `America/New_York`, `Europe/London` 같은 지역 기반 ID를 허용한다. 빈 문자열, 공백 전용 값, 존재하지 않는 ID와 `KST`, `GMT+9`, `UTC+09:00`, `Seoul` 같은 약어·고정 오프셋·비지역 ID는 거부한다.
+
+검증 실패는 HTTP 422 + VALIDATION_ERROR와 다음 공통 오류 JSON을 반환한다.
+
+```json
+{
+  "timestamp": "2026-07-31T00:00:00Z",
+  "status": 422,
+  "code": "VALIDATION_ERROR",
+  "message": "입력한 내용을 다시 확인해주세요.",
+  "fieldErrors": [
+    {
+      "field": "timezone",
+      "code": "INVALID_TIMEZONE",
+      "message": "올바른 시간대를 선택해주세요."
+    }
+  ]
+}
+```
+
+하나의 트랜잭션에서 현재 사용자 한 명의 users.timezone만 갱신한다. email, password_hash, created_at, 사용자 ID와 기존 일정의 start_at·end_at UTC 절대값은 변경하지 않으며 DB 마이그레이션, updated_at 컬럼, 별도 버전·낙관적 잠금을 추가하지 않는다. 현재 저장값과 동일한 유효 시간대 요청도 멱등적으로 HTTP 200으로 처리한다. 동시 요청은 트랜잭션별로 정상 처리하고 마지막으로 커밋된 요청 값을 최종 상태로 사용한다.
+
+성공은 HTTP 200 OK, `Cache-Control: no-store`와 GET /api/v1/users/me와 동일한 다음 JSON을 반환한다.
+
+```json
+{
+  "email": "user@example.com",
+  "timezone": "Asia/Tokyo",
+  "createdAt": "2026-07-30T00:00:00Z"
+}
+```
+
+응답에는 id, password, passwordHash, token, refreshToken, sessionId, secret, roles, authorities를 포함하지 않는다. 시간대 변경은 저장된 일정의 절대 시각을 바꾸지 않고 표시 기준만 바꾼다. 클라이언트는 성공 후 현재 사용자 정보, 홈의 오늘 일정, 월간 캘린더, 선택 날짜 일정 목록, 현재 열린 일정 상세를 무효화하거나 다시 조회하고 새 시간대 기준으로 날짜·요일·시작·종료 시각·오늘 여부·선택 날짜 포함 여부를 다시 계산한다. 별도 캐시 API와 일정 일괄 변환 작업은 만들지 않는다.
+
+미인증 요청과 Authentication principal에 대응하는 users 레코드가 없는 경우는 2.18.8과 동일하게 HTTP 401 + UNAUTHORIZED JSON으로 처리한다. 후자의 경우 세션을 무효화하고 SecurityContext를 제거하며 CALTALK_SESSION을 삭제하고 사용자 존재 여부를 노출하지 않는다. CSRF 토큰 누락·불일치는 HTTP 403 + FORBIDDEN 공통 JSON으로 처리한다.
+
+상태: 기술 설계 확정안
+
 2.19 보안·개인정보·요청 제한
 2.19.1 최소 수집·최소 전송·개인정보 안내
 LLM에는 명령 해석에 필요한 최소 정보만 전달, 이메일·내부 ID·인증 토큰 미전달(확정). 개인정보 처리 안내에는 "자연어 입력이 외부 API로 전달될 수 있다"는 사실만 반영한다(2.12.2). 운영 로그에 사용자 입력 원문을 무분별하게 남기지 않는다. API 키, DB 접속정보, 세션/CSRF 비밀값, HMAC 서버 비밀키는 환경변수로 관리한다.
@@ -700,6 +750,9 @@ DB 장애	성공하지 않은 변경을 성공으로 응답하지 않음
 로그인 세션·보안 테스트: CALTALK_SESSION의 HttpOnly·SameSite=Lax·Path=/와 Domain·Max-Age 미지정, 환경별 Secure, 12시간 유휴 만료, 기존 세션 ID 교체, 재로그인, JSON 401 UNAUTHORIZED·403 FORBIDDEN, HTML 리다이렉트 부재를 검증한다.
 로그아웃 테스트: 인증 사용자 요청의 204와 빈 본문, 현재 세션 무효화, SecurityContext 제거, CALTALK_SESSION의 빈 값·Path=/·Max-Age=0·HttpOnly·SameSite=Lax·환경별 Secure·Domain 미지정, 시작 화면 이동, 기존 쿠키의 보호 API 401 UNAUTHORIZED, 유효한 CSRF 토큰을 포함한 미인증 재요청의 204, CSRF 누락·불일치의 403 FORBIDDEN JSON, HTML 리다이렉트 부재, 세션 ID·쿠키 값·토큰 비노출을 검증한다.
 현재 사용자 조회 테스트: 로그인 뒤 GET /api/v1/users/me의 200, email·timezone·UTC createdAt, Cache-Control no-store, id·password·passwordHash·token·refreshToken·sessionId·secret·roles·authorities 부재를 검증한다. 세션 없는 요청의 401 UNAUTHORIZED JSON·Content-Type·리다이렉트와 Location 부재, 로그아웃 뒤 기존 쿠키의 401, users 레코드가 없는 인증 세션의 401·세션 무효화·SecurityContext 제거·CALTALK_SESSION 삭제·사용자 존재 여부 비노출도 검증한다.
+시간대 변경 단위·MVC 테스트: 인증된 PATCH /api/v1/users/me의 200, timezone 단일 요청 필드, trim 적용, 지역 기반 IANA Zone ID 허용, 빈 값·공백·존재하지 않는 ID·KST·GMT+9·UTC+09:00 거부, 422 VALIDATION_ERROR와 timezone의 INVALID_TIMEZONE fieldError, email·createdAt 유지, Cache-Control no-store와 민감 필드 부재를 검증한다.
+시간대 변경 통합·보안 테스트: users.timezone만 변경되고 GET /api/v1/users/me에서 변경값이 확인되는지, 동일 값 재요청도 200인지, email·password_hash·created_at·사용자 ID와 일정 UTC 값 및 DB 스키마가 불변인지 검증한다. 미인증 401 UNAUTHORIZED, 사용자 없는 인증 세션 정리, CSRF 누락·불일치 403 FORBIDDEN, 다른 사용자 변경 불가와 마지막 정상 커밋 값의 최종 반영도 검증한다.
+시간대 변경 클라이언트 테스트: 성공 시 사용자 정보·오늘 일정·월간 캘린더·선택 날짜 목록·열린 일정 상세를 무효화하거나 재조회하고 새 시간대 기준으로 모든 날짜·시각 표시와 오늘·선택 날짜 포함 여부를 다시 계산하는지 검증한다. 실패 시 기존 시간대와 일정 캐시를 유지하고 필드 검증 오류와 일반 서버 오류를 구분하는지 검증한다.
 로그인 제한 테스트: 정규화 이메일로 식별한 계정의 15분·5회 잠금과 성공 후 초기화, IP의 15분·20회 제한 및 429 RATE_LIMITED·초 단위 Retry-After를 검증한다.
 단위 테스트: 충돌 판정, 지속시간 유지, 낙관적 잠금 버전 비교, conflict_snapshot_hash/candidate_fingerprint 계산(정규화 규칙 포함), login_security_state의 15분 롤링 윈도·잠금 로직
 통합 테스트: 확인 승인의 잠금→검증→소비/재계산 전체 흐름, PWA 충돌 확인이 자연어 흐름과 동일한 승인 엔드포인트를 공유하는지
