@@ -7,10 +7,13 @@ import java.util.List;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import com.caltalk.backend.schedule.ScheduleConflictResponse;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -31,6 +34,18 @@ public class GlobalExceptionHandler {
                 "VALIDATION_ERROR",
                 VALIDATION_MESSAGE,
                 fieldErrors
+        );
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnreadableRequest(
+            HttpMessageNotReadableException exception
+    ) {
+        return errorResponse(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "VALIDATION_ERROR",
+                VALIDATION_MESSAGE,
+                List.of()
         );
     }
 
@@ -61,6 +76,82 @@ public class GlobalExceptionHandler {
                 "VALIDATION_ERROR",
                 VALIDATION_MESSAGE,
                 List.of(fieldError)
+        );
+    }
+
+    @ExceptionHandler(InvalidScheduleTimeRangeException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidScheduleTimeRange(
+            InvalidScheduleTimeRangeException exception
+    ) {
+        return errorResponse(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "VALIDATION_ERROR",
+                VALIDATION_MESSAGE,
+                List.of(new FieldErrorResponse(
+                        "endAt",
+                        "INVALID_TIME_RANGE",
+                        exception.getMessage()
+                ))
+        );
+    }
+
+    @ExceptionHandler(ScheduleConflictException.class)
+    public ResponseEntity<ScheduleConflictResponse> handleScheduleConflict(
+            ScheduleConflictException exception
+    ) {
+        return conflictResponse(
+                "SCHEDULE_CONFLICT",
+                exception.getMessage(),
+                exception.getConfirmationId(),
+                exception.getConflicts()
+        );
+    }
+
+    @ExceptionHandler(ConfirmationSupersededException.class)
+    public ResponseEntity<ScheduleConflictResponse> handleConfirmationSuperseded(
+            ConfirmationSupersededException exception
+    ) {
+        return conflictResponse(
+                "CONFIRMATION_SUPERSEDED",
+                exception.getMessage(),
+                exception.getConfirmationId(),
+                exception.getConflicts()
+        );
+    }
+
+    @ExceptionHandler(ConfirmationNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleConfirmationNotFound(
+            ConfirmationNotFoundException exception
+    ) {
+        return errorResponse(
+                HttpStatus.NOT_FOUND,
+                "CONFIRMATION_NOT_FOUND",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ConfirmationForbiddenException.class)
+    public ResponseEntity<ApiErrorResponse> handleConfirmationForbidden(
+            ConfirmationForbiddenException exception
+    ) {
+        return errorResponse(
+                HttpStatus.FORBIDDEN,
+                "FORBIDDEN",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ConflictAcknowledgementRequiredException.class)
+    public ResponseEntity<ApiErrorResponse> handleConflictAcknowledgementRequired(
+            ConflictAcknowledgementRequiredException exception
+    ) {
+        return errorResponse(
+                HttpStatus.CONFLICT,
+                "CONFLICT_ACKNOWLEDGEMENT_REQUIRED",
+                exception.getMessage(),
+                List.of()
         );
     }
 
@@ -116,6 +207,26 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(response);
     }
 
+    private ResponseEntity<ScheduleConflictResponse> conflictResponse(
+            String code,
+            String message,
+            Long confirmationId,
+            List<com.caltalk.backend.schedule.ConflictingScheduleResponse> conflicts
+    ) {
+        ScheduleConflictResponse response = new ScheduleConflictResponse(
+                Instant.now(),
+                HttpStatus.CONFLICT.value(),
+                code,
+                message,
+                List.of(),
+                confirmationId,
+                conflicts
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .cacheControl(CacheControl.noStore())
+                .body(response);
+    }
+
     private FieldErrorResponse toFieldError(FieldError error) {
         String field = error.getField();
         String validationCode = error.getCode();
@@ -126,6 +237,10 @@ public class GlobalExceptionHandler {
                     "INVALID_TIMEZONE",
                     "올바른 시간대를 선택해주세요."
             );
+        }
+        if (("title".equals(field) || "location".equals(field))
+                && "Size".equals(validationCode)) {
+            return new FieldErrorResponse(field, "MAX_LENGTH", "200자 이하여야 합니다.");
         }
         if ("password".equals(field)
                 && "NotBlank".equals(validationCode)
