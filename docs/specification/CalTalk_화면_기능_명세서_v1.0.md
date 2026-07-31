@@ -601,7 +601,7 @@ SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
 11.3 일정 조회 계약
 기간별 일정 조회는 `GET /api/v1/schedules?from={from}&to={to}` 하나를 홈의 오늘 일정, 월간 캘린더, 선택 날짜 일정 목록에서 공통 사용한다. from과 to는 오프셋을 포함한 필수 ISO-8601 date-time이며 시작 포함·종료 미포함인 `[from, to)`를 뜻한다. from은 to보다 빨라야 하고 서버는 두 값을 UTC Instant로 변환한다. 오프셋 없는 시각, 누락·형식 오류, from >= to는 HTTP 422 + VALIDATION_ERROR와 fieldErrors로 처리하며 관계 오류의 field는 to, reason은 INVALID_TIME_RANGE로 통일한다. 임의의 페이지네이션이나 최대 조회 일수는 추가하지 않고 조회 범위 제한은 후속 결정으로 보류한다.
 
-서버는 현재 인증 사용자의 일정에 `startAt < to AND endAt > from` 겹침 조건을 적용한다. 요청 종료 경계에 정확히 끝나는 일정은 제외하고 요청 시작 경계에 정확히 시작하는 일정과 여러 날짜에 걸친 일정은 포함한다. 결과는 startAt, endAt, id 오름차순으로 정렬한다. userId·ownerUserId·email로 조회 대상을 지정할 수 없다.
+서버는 현재 인증 사용자의 일정에 `startAt < to AND endAt > from` 겹침 조건을 적용한다. 요청 시작 경계에 정확히 끝나는 일정은 제외하고 요청 시작 경계에 정확히 시작하는 일정은 포함한다. 요청 종료 경계에 정확히 시작하는 일정은 제외하고 요청 종료 경계에 정확히 끝나는 일정은 포함한다. 여러 날짜에 걸친 일정도 겹침 조건을 만족하면 포함한다. 결과는 startAt, endAt, id 오름차순으로 정렬한다. userId·ownerUserId·email로 조회 대상을 지정할 수 없다.
 
 성공은 HTTP 200, `Cache-Control: no-store`와 `{ "items": [...] }`를 반환한다. 빈 결과는 `{ "items": [] }`이며 404를 사용하지 않는다. 목록 항목은 id·title·startAt·endAt·location·version만 포함하는 별도 DTO이고, createdAt·updatedAt은 상세에만 포함한다. 시각은 UTC ISO-8601 Z 문자열이며 소유자·사용자 이메일·내부 해시·confirmation·변경 이력은 노출하지 않는다.
 
