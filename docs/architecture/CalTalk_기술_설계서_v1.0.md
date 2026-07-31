@@ -364,7 +364,7 @@ schedule_change_history
  INDEX idx_history_schedule ON schedule_change_history (schedule_id, changed_at)
  INDEX idx_history_changed_by ON schedule_change_history (changed_by_user_id, changed_at)
 일정이 하드 삭제되면 이력도 함께 삭제된다(ON DELETE CASCADE). 삭제된 일정을 조회하는 기능이 MVP에 없으므로, 근거 없는 장기 보관을 피하기 위해 별도의 삭제 감사 로그는 두지 않는다.
-CREATE 이력은 before 컬럼을 NULL로 두고 생성된 일정 값을 after 컬럼에 기록한다. UPDATE는 before·after를 모두 기록한다. DELETE는 삭제 직전 값을 before에 기록하고 after는 NULL로 두지만, 같은 트랜잭션의 schedules 삭제로 해당 이력도 CASCADE 삭제되는 기존 정책을 유지한다.
+CREATE 이력은 before 컬럼을 NULL로 두고 생성된 일정 값을 after 컬럼에 기록한다. UPDATE는 before·after를 모두 기록한다. 일정 삭제 시 새 DELETE 이력은 생성하지 않고 기존 CREATE·UPDATE 이력만 같은 트랜잭션의 schedules 하드 삭제와 함께 CASCADE 삭제한다. 물리 CHECK에 남아 있는 change_type DELETE는 현재 MVP에서 사용하지 않는다.
 
 2.9.4 kakao_user_links
 
@@ -861,7 +861,7 @@ ORDER BY existing.start_at ASC, existing.id ASC
 
 일정 삭제는 `DELETE /api/v1/schedules/{scheduleId}?version={version}`을 사용한다. DELETE 본문과 If-Match 헤더는 사용하지 않으며 version은 필수인 0 이상의 정수다. 현재 사용자 일정만 `scheduleId + owner_user_id` 조건으로 조회하고 없음·타 사용자 소유는 동일한 HTTP 404 + SCHEDULE_NOT_FOUND로 처리한다. version 불일치는 PATCH와 같은 HTTP 409 + SCHEDULE_VERSION_CONFLICT를 반환한다. PWA의 삭제 확인 모달은 클라이언트 책임이며 직접 DELETE에 confirmation_requests를 만들지 않는다.
 
-삭제 성공은 같은 트랜잭션에서 삭제 직전 전체 값을 before, after를 null로 하는 change_type DELETE·source_channel PWA 이력을 기록한 뒤 일정을 즉시 하드 삭제하고 HTTP 204 No Content, 빈 본문, `Cache-Control: no-store`를 반환한다. 이 DELETE 이력은 schedules 삭제 시 `schedule_change_history.schedule_id ON DELETE CASCADE`에 의해 기존 이력과 함께 제거된다. 따라서 MVP는 DELETE 이력을 영구 보존하지 않고 별도 감사 로그·soft delete·FK 변경을 추가하지 않는다. 같은 ID의 재삭제는 404 SCHEDULE_NOT_FOUND다.
+삭제 성공은 같은 트랜잭션에서 새 DELETE 이력을 생성하지 않고 일정을 즉시 하드 삭제하며 HTTP 204 No Content, 빈 본문, `Cache-Control: no-store`를 반환한다. 기존 CREATE·UPDATE 이력은 `schedule_change_history.schedule_id ON DELETE CASCADE`에 의해 함께 제거된다. change_type DELETE는 현재 MVP에서 사용하지 않으며 별도 감사 로그·soft delete·FK 변경을 추가하지 않는다. 향후 영구 삭제 감사가 필요하면 별도 감사 로그 구조를 검토한다. 같은 ID의 재삭제는 404 SCHEDULE_NOT_FOUND다.
 
 PATCH와 DELETE는 공개 경로나 CSRF 예외에 추가하지 않는다. 미인증은 401 UNAUTHORIZED, CSRF 누락·불일치는 403 FORBIDDEN이다. scheduleId 또는 version의 누락·형식·범위 오류와 PATCH 필드 검증은 422 VALIDATION_ERROR를 사용한다. 성공 후 클라이언트는 열린 상세, 홈 오늘 일정, 월간 캘린더와 선택 날짜 목록을 무효화하거나 재조회한다. 수정은 전후 날짜 범위가 모두 갱신 대상이며, 삭제 성공은 상세를 닫고 안전한 목록이나 캘린더로 이동한다.
 
@@ -924,7 +924,7 @@ DB 장애	성공하지 않은 변경을 성공으로 응답하지 않음
 일정 생성 충돌 테스트: 같은 사용자의 겹치는 범위는 최초 POST에서 DB 변경 없이 409 SCHEDULE_CONFLICT와 confirmationId·충돌 목록을 반환하고, 맞닿는 경계와 다른 사용자 일정은 충돌로 보지 않는지 확인한다. 승인 후 한 번만 생성되는지, 위조·타 사용자 confirmation 사용·만료·중복 승인·승인 대기 중 충돌 변경을 기존 공통 confirmation 계약대로 처리하는지 검증한다.
 일정 충돌 응답 테스트: confirmationId가 숫자이고 conflicts가 startAt·id 순으로 정렬되며 각 항목에 id·title·UTC startAt·UTC endAt·location만 있는지 검증한다. 다른 사용자 일정과 owner_user_id·user_id·version·생성/수정 시각·후보/충돌 해시·내부 재계산 정보가 노출되지 않는지 확인한다.
 confirmation 물리 스키마 테스트: user_id와 상태 5개, 5분 만료, 개별 후보 필드, CHAR(64) candidate_fingerprint·conflict_snapshot_hash, 부분 유니크 제약과 user/status·expires_at·target_schedule_id 인덱스, 세 FK의 NO ACTION을 검증한다.
-변경 이력 물리 스키마 테스트: before/after 컬럼, source_channel·change_type CHECK, schedule_id FK의 ON DELETE CASCADE, changed_by_user_id FK의 NO ACTION과 두 복합 인덱스를 검증한다. CREATE는 before NULL·after 저장, UPDATE는 양쪽 저장, DELETE는 before 저장·after NULL 후 일정 삭제와 함께 CASCADE 삭제되는지 확인한다.
+변경 이력 물리 스키마 테스트: before/after 컬럼, source_channel·change_type CHECK, schedule_id FK의 ON DELETE CASCADE, changed_by_user_id FK의 NO ACTION과 두 복합 인덱스를 검증한다. CREATE는 before NULL·after 저장, UPDATE는 양쪽 저장을 확인하고, 일정 삭제 시 새 DELETE 이력이 생성되지 않는지 확인한다.
 일정 생성 인증·트랜잭션 테스트: 미인증 401 UNAUTHORIZED, CSRF 누락·불일치 403 FORBIDDEN, 요청 userId·ownerUserId로 소유자를 바꿀 수 없음, 사용자 없는 인증 세션 정리, 일정·이력 저장 실패 시 전체 롤백, 일반 동일 요청 반복의 별도 일정 생성과 다른 사용자 일정 불변을 검증한다.
 로그인 제한 테스트: 정규화 이메일로 식별한 계정의 15분·5회 잠금과 성공 후 초기화, IP의 15분·20회 제한 및 429 RATE_LIMITED·초 단위 Retry-After를 검증한다.
 단위 테스트: 충돌 판정, 지속시간 유지, 낙관적 잠금 버전 비교, conflict_snapshot_hash/candidate_fingerprint 계산(정규화 규칙 포함), login_security_state의 15분 롤링 윈도·잠금 로직
@@ -933,7 +933,7 @@ confirmation 물리 스키마 테스트: user_id와 상태 5개, 5분 만료, �
 동일 후보 동시 최초 생성 테스트(신규): 동일 user_id·candidate_fingerprint를 가진 완전히 동일한 최초 생성 요청 두 개가 PENDING 행이 아직 하나도 없는 상태에서 동시에 들어올 때, 부분 유니크 인덱스 위반이 발생해도 이것이 클라이언트에 HTTP 500으로 노출되지 않고, 두 요청 모두 결과적으로 동일한 하나의 confirmationId(또는 상태가 달라졌다면 새로 발급된 confirmationId)를 정상적으로 받는지 확인
 자동 재계산 테스트: 대상 일정의 버전이 승인 대기 중 바뀌었을 때 기존 확인이 SUPERSEDED로 바뀌고 새 confirmationId·최신 후보·최신 충돌 목록이 자동 발급되는지, 기존 confirmationId가 이후 재사용 불가한지, 대상 일정 자체가 삭제된 경우에만 재입력 요청으로 이어지는지
 동일 후보 재사용 재검증 테스트: 동일 candidate_fingerprint로 재요청 시 버전·충돌이 동일하면 기존 confirmationId가 재사용되고, 달라졌으면 기존이 SUPERSEDED로 바뀌며 새 확인이 발급되는지
-삭제 테스트: 하드 삭제 시 schedule_change_history가 ON DELETE CASCADE로 함께 삭제되는지
+삭제 테스트: 새 DELETE 이력을 생성하지 않고 하드 삭제하며 기존 schedule_change_history가 ON DELETE CASCADE로 같은 트랜잭션에서 함께 삭제되는지
 요청 제한 테스트: 로그인 실패 누적 후 계정 잠금이 걸리는지, 애플리케이션 재시작(또는 그에 준하는 상태 초기화) 시뮬레이션 후에도 login_security_state·connection_codes.fail_count 기반 잠금이 유지되는 반면 메모리 기반 보조 제한만 초기화되는지
 권한·시간대·멱등성·만료 테스트: 기존과 동일
 AI 장애 응답 테스트: 웹은 503+AI_SERVICE_UNAVAILABLE, 카카오는 정상 스킬 응답 형태로 반환되는지

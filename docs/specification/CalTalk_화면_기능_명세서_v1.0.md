@@ -624,7 +624,7 @@ SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
 
 일정 삭제는 `DELETE /api/v1/schedules/{scheduleId}?version={version}`을 사용한다. version은 필수인 0 이상의 정수이며 DELETE 본문과 If-Match는 사용하지 않는다. 직접 PWA 삭제는 DLG-DELETE-001에서 비가역성을 확인한 뒤 호출하고 서버 confirmation은 만들지 않는다. 없음·타 사용자 소유는 404 SCHEDULE_NOT_FOUND, version 불일치는 409 SCHEDULE_VERSION_CONFLICT다.
 
-삭제 성공은 HTTP 204 No Content, 빈 본문과 `Cache-Control: no-store`이며 즉시 하드 삭제한다. schedule_change_history는 schedule_id ON DELETE CASCADE이므로 기존 이력과 삭제 직전 기록한 DELETE 이력도 함께 제거되어 영구 보존되지 않는다. 별도 감사 로그와 soft delete는 추가하지 않는다. 재삭제는 404다. PATCH·DELETE는 세션 인증과 CSRF 토큰이 필수이며 미인증은 401, CSRF 실패는 403이다.
+삭제 성공은 HTTP 204 No Content, 빈 본문과 `Cache-Control: no-store`이며 새 DELETE 이력을 만들지 않고 즉시 하드 삭제한다. 기존 CREATE·UPDATE 이력은 schedule_change_history의 schedule_id ON DELETE CASCADE에 따라 같은 트랜잭션에서 함께 삭제된다. change_type DELETE는 현재 MVP에서 사용하지 않고 별도 감사 로그와 soft delete는 추가하지 않는다. 향후 영구 삭제 감사가 필요하면 별도 감사 로그 구조를 검토한다. 재삭제는 404다. PATCH·DELETE는 세션 인증과 CSRF 토큰이 필수이며 미인증은 401, CSRF 실패는 403이다.
 
 수정 성공 뒤 상세 응답을 반영하고 전후 날짜 범위의 홈 오늘 일정·월간 캘린더·선택 날짜 목록을 무효화하거나 재조회한다. 수정 충돌은 기존 다이얼로그에서 사용자 시간대로 표시하고 승인·다른 시간·취소를 제공한다. 삭제 성공 뒤 상세를 닫고 안전한 목록으로 이동하며 상세와 세 일정 목록 캐시를 무효화한다. 테스트는 부분 수정, location 세 상태, 무변경, version, 충돌·confirmation·SUPERSEDED, UPDATE 이력, 삭제 204·CASCADE·재삭제, 소유권·CSRF를 포함한다.
 
