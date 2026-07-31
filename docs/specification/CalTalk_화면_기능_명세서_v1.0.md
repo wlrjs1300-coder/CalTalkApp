@@ -200,7 +200,7 @@ PWA 직접 입력은 과거 일정도 허용하되 절대 날짜와 시간을 �
 충돌 있음: 409 SCHEDULE_CONFLICT의 confirmationId로 DLG-CONFLICT-001을 연다. 최초 요청에 클라이언트 승인 플래그를 보내지 않는다.
 성공: 201 응답을 받으면 입력 화면을 닫고 성공 안내를 표시한 뒤 선택 날짜 일정 목록, 홈의 오늘 일정, 월간 캘린더를 무효화하거나 다시 조회한다. 생성 일정이 현재 범위에 포함되면 즉시 표시하고 UTC 응답을 사용자 시간대로 변환한다.
 검증 실패: 입력 화면과 입력값을 유지하고 422 fieldErrors를 해당 필드에 표시한다. 서버 오류는 검증 오류와 구분한다.
-충돌 응답: 입력 화면과 값을 유지한 채 겹치는 일정을 DLG-CONFLICT-001에 표시한다. 취소하면 생성하지 않고 “그대로 저장”을 선택하면 POST /api/v1/confirmations/{confirmationId}/approve로 기존 확인 절차를 진행한다.
+충돌 응답: 입력 화면과 값을 유지한 채 숫자 confirmationId와 conflicts를 받는다. conflicts는 startAt 오름차순, 같으면 id 오름차순이며 각 항목의 id·title·UTC startAt·UTC endAt·location만 DLG-CONFLICT-001에 표시한다. 취소하면 생성하지 않고 “그대로 저장”을 선택하면 POST /api/v1/confirmations/{confirmationId}/approve에 conflictAcknowledged: true를 보내 기존 확인 절차를 진행한다. 일정 생성 API를 confirmationId와 함께 다시 호출하지 않는다.
 인증 만료: 401이면 비로그인 상태로 전환하고 보호 화면 정책을 적용한다. CSRF 실패 403은 성공으로 처리하지 않는다.
 관련 API: POST /api/v1/schedules, 승인·취소 API.
 완료 기준: 서버로 보내는 종료 시간이 비어 있지 않고 생성 성공 뒤 관련 일정 화면이 새 UTC 저장값의 사용자 시간대 표시로 갱신된다.
@@ -316,7 +316,7 @@ GET /api/v1/users/me 사용자 정보
 완료 기준: 비로그인 상태에서도 접근 가능하다.
 7. 다이얼로그·시트·상태 UI 17개
 ID	이름·유형	위치·표시 조건	내용과 액션	종료 조건·상태	DB 변경
-DLG-CONFLICT-001	충돌 확인 다이얼로그	등록·수정 409	충돌 일정과 절대 시간, 그대로 저장·다른 시간·취소	승인 성공, 취소, 만료	승인 성공 때만
+DLG-CONFLICT-001	충돌 확인 다이얼로그	등록·수정 409 SCHEDULE_CONFLICT	정렬된 conflicts의 제목·UTC 시각을 사용자 시간대로 변환해 표시하고 장소가 있으면 함께 표시, 그대로 저장·다른 시간·취소	별도 승인 API 성공, 취소, 5분 만료, CONSUMED·SUPERSEDED·CANCELLED 상태	승인 성공 때만
 DLG-DELETE-001	삭제 확인 다이얼로그	상세에서 삭제	되돌릴 수 없음, 삭제·취소	성공 또는 취소	삭제 성공 시 하드 삭제
 DLG-CHAT-CONFIRM-CREATE-001	생성 확인 바텀시트	자연어 후보 완성	제목·절대 날짜·시간·장소·충돌, 등록·취소	승인·취소·5분 만료	승인 성공 때만
 DLG-CHAT-CONFIRM-UPDATE-001	수정 확인 바텀시트	수정 후보 완성	대상, 전후 값, 충돌, 수정·취소	승인·취소·5분 만료	승인 성공 때만
@@ -528,9 +528,13 @@ Given offset date-time 입력, When 생성하면, Then 오프셋을 반영한 UT
 Given 제목 누락·공백·200자 초과 또는 장소 200자 초과, When 생성하면, Then 422 VALIDATION_ERROR와 해당 필드의 REQUIRED 또는 MAX_LENGTH를 받는다.
 Given 종료가 시작과 같거나 빠름, When 생성하면, Then 422와 endAt의 INVALID_TIME_RANGE를 받고 DB는 변경되지 않는다.
 Given description·allDay·userId 등 계약 외 필드, When 생성 요청에 포함하면, Then 422로 거부되고 소유자와 일정 데이터는 변경되지 않는다.
-Given 같은 사용자 일정과 시간 범위가 겹침, When 최초 생성하면, Then 409 SCHEDULE_CONFLICT와 confirmationId·충돌 목록을 받고 DB는 변경되지 않는다.
+Given 같은 사용자 일정과 시간 범위가 겹침, When 최초 생성하면, Then 409 SCHEDULE_CONFLICT와 숫자 confirmationId·정렬된 conflicts를 받고 DB는 변경되지 않는다.
+Given SCHEDULE_CONFLICT 응답, When conflicts를 확인하면, Then id·title·startAt·endAt·location만 있고 다른 사용자 일정·소유자·version·내부 해시는 없다.
 Given 기존 일정 종료와 새 일정 시작이 맞닿음 또는 다른 사용자의 일정만 겹침, When 생성하면, Then 충돌로 판정하지 않는다.
-Given 유효한 본인 confirmationId, When 그대로 저장을 승인하면, Then 기존 공통 확인 검증 뒤 일정이 한 번만 생성된다.
+Given 유효한 본인 confirmationId, When 별도 승인 API에 conflictAcknowledged true로 그대로 저장을 승인하면, Then 기존 공통 확인 검증 뒤 일정이 한 번만 생성된다.
+Given PENDING confirmation 생성 후 5분 경과 또는 CONSUMED·CANCELLED 상태, When 승인하면, Then CONFIRMATION_NOT_FOUND로 종료되고 DB는 변경되지 않는다.
+Given 승인 시 최신 충돌 목록이 변경됨, When 서버가 재검증하면, Then 기존 confirmation을 SUPERSEDED로 전환하고 새 confirmationId와 최신 후보·충돌 목록을 반환한다.
+Given 다른 사용자의 confirmationId, When 승인하면, Then 403 FORBIDDEN을 받고 일정·이력·confirmation 상태는 변경되지 않는다.
 Given 일정 생성 성공, When 클라이언트가 처리하면, Then 입력 화면을 닫고 성공 안내 후 선택 날짜·오늘 일정·월간 캘린더를 재조회해 사용자 시간대로 표시한다.
 Given 동일 승인을 중복 실행, When 서버가 처리하면, Then DB 변경은 한 번만 발생한다.
 Given 자연어 필수값 누락, When 분석되면, Then 재질문하고 DB는 변경되지 않는다.
@@ -549,7 +553,7 @@ Given 시간대 변경, When 저장하면, Then UTC 값은 유지되고 사용�
 Given 탈퇴 체크 미선택, When 화면을 보면, Then 삭제 버튼은 비활성화된다.
 Given 탈퇴 처리 오류, When 응답하면, Then 계정과 체크 상태가 유지된다.
 Given 다른 사용자 일정 URL, When 접근하면, Then 일정 내용 없이 403 또는 안전한 미노출 응답을 받는다.
-최종 수용 기준은 56개다.
+최종 수용 기준은 61개다.
 11. 화면별 API 연결
 11.1 확정 API
 POST /api/v1/auth/signup
@@ -865,6 +869,46 @@ description·allDay·userId 등 계약 외 필드 HTTP 422
 
 confirmation 승인 후 겹침 일정 생성
 
+SCHEDULE_CONFLICT confirmationId 숫자
+
+conflicts의 startAt·id 정렬
+
+conflicts 항목의 id·title·startAt·endAt·location
+
+conflicts에서 다른 사용자·소유자·version·내부 해시 미노출
+
+별도 승인 API와 conflictAcknowledged true
+
+confirmation 5분 만료
+
+confirmation 상태 PENDING·CONSUMED·SUPERSEDED·EXPIRED·CANCELLED
+
+confirmation user_id 소유권
+
+candidate_fingerprint 검증
+
+conflict_snapshot_hash 재계산
+
+target_schedule_version 검증
+
+CONSUMED·CANCELLED 승인 방지
+
+SUPERSEDED 자동 후보 발급
+
+confirmation 물리 타입·CHECK·부분 유니크 제약
+
+confirmation user_id/status·expires_at·target_schedule_id 인덱스
+
+history before/after 컬럼 유지
+
+history source_channel·change_type CHECK
+
+history schedule_id FK ON DELETE CASCADE
+
+history changed_by_user_id FK NO ACTION
+
+schedules owner_user_id FK NO ACTION
+
 다른 사용자 일정은 충돌 대상 아님
 
 confirmation 위조·타 사용자 사용 방지
@@ -904,7 +948,7 @@ userId·ownerUserId로 일정 소유자 변경 불가
 탈퇴 서버 오류 시 데이터 유지
 
 실제 식별값·토큰·코드의 URL 비노출
-총 155개 점검 항목이다.
+총 175개 점검 항목이다.
 13. 구현 단계 전달사항
 13.1 인증 구현
 회원가입은 email, password, passwordConfirmation만 받고 이름과 시간대는 받지 않는다. 이메일은 trim·소문자 정규화 후 형식과 최대 254자를 검증한다.
@@ -927,6 +971,8 @@ userId·ownerUserId로 일정 소유자 변경 불가
 세션 principal의 이메일로 현재 사용자를 조회해 owner_user_id를 정하고 요청의 사용자 식별 필드와 계약 외 필드는 거부한다. 사용자 없는 인증 세션은 현재 사용자 조회와 같은 경로로 정리한다. 생성은 세션 인증과 CSRF 보호를 적용하고 일정·CREATE 이력을 하나의 트랜잭션에서 저장한다.
 충돌 없음은 201, Cache-Control no-store, Location과 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. 시각은 UTC Z 표기이며 소유자·인증·민감정보는 반환하지 않는다.
 같은 사용자 일정과 겹치면 최초 POST는 DB를 변경하지 않고 409 SCHEDULE_CONFLICT와 confirmationId·충돌 목록을 반환한다. 경계가 맞닿거나 다른 사용자 일정만 겹치면 충돌이 아니다. 승인은 기존 confirmation 엔드포인트를 사용하고 위조·소유권·만료·중복 소비를 재검증한다.
+SCHEDULE_CONFLICT는 공통 오류 필드에 숫자 confirmationId와 startAt·id 순으로 정렬된 conflicts를 추가한다. conflicts는 id·title·UTC startAt·UTC endAt·location만 노출한다. 승인 요청은 POST /api/v1/confirmations/{confirmationId}/approve와 conflictAcknowledged true를 사용하며 5분 만료와 상태 5개, 후보 지문·충돌 해시·대상 버전 재검증 및 SUPERSEDED 자동 발급을 유지한다.
+confirmation_requests는 user_id와 기존 개별 후보 컬럼을 유지하고, schedule_change_history는 changed_by_user_id·source_channel·before/after 구조와 schedule_id ON DELETE CASCADE를 유지한다. schedules.owner_user_id와 confirmation의 FK 및 history.changed_by_user_id는 NO ACTION으로 구현한다.
 성공 후 입력 화면을 닫고 안내를 표시하며 선택 날짜 일정 목록, 홈의 오늘 일정, 월간 캘린더를 무효화하거나 다시 조회한다. 검증·충돌 실패는 입력값을 유지하고 별도 캐시 API를 만들지 않는다.
 삭제는 즉시 하드 삭제이며 휴지통이 없다.
 13.3 웹 자연어 일정 관리
@@ -985,6 +1031,7 @@ PENDING_COMMAND_EXPIRED reason 필드와 값의 최종 채택 여부
 카카오 PoC 실패 시 공개 문구를 제어할 배포 설정 방식
 관리형 PostgreSQL 호스팅과 백업 보관 기간
 정확한 색상·폰트·브랜드 스타일
+STALE_CONFIRMATION 오류 코드 도입 여부(기존 오류 사전에 없으므로 CONFIRMATION_NOT_FOUND·CONFIRMATION_SUPERSEDED·CONFLICT_ACKNOWLEDGEMENT_REQUIRED 계약을 우선 사용)
 17. 명세 완료 기준
 
 화면 15개 정의
@@ -995,13 +1042,13 @@ PENDING_COMMAND_EXPIRED reason 필드와 값의 최종 채택 여부
 
 사용자 흐름 18개 전문 수록
 
-수용 기준 56개 작성
+수용 기준 61개 작성
 
 API 경로를 /api/v1 전체 경로로 통일
 
 중복 제거 API 17종 재계산
 
-테스트 체크 항목 155개 작성
+테스트 체크 항목 175개 작성
 
 자연어 과거 일정 거부 반영
 
@@ -1042,8 +1089,8 @@ DLG-EXPIRED-001의 화면별 표시 형식을 구체화했다.
 API: 17종(확정 14종, 화면·API 명세 제안 3종)
 
 사용자 흐름: 18개
-수용 기준: 56개
-테스트 체크 항목: 155개
+수용 기준: 61개
+테스트 체크 항목: 175개
 공통 상태·오류 사전: 21개 행
 20. 최종 자체 평가
 20.1 정합성
