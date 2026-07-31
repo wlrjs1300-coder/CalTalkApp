@@ -319,6 +319,7 @@ schedules
  CHECK (end_at > start_at)
 
  INDEX idx_schedules_owner_start ON schedules (owner_user_id, start_at)
+owner_user_id는 users.id 외래 키이며 계정 탈퇴 시 2.7.9의 단일 트랜잭션에서 사용자 소유 일정을 먼저 하드 삭제한다. schedules 외래 키에 ON DELETE CASCADE를 추가로 확정하지 않는다.
 충돌 조건(자기 제외):
 
 
@@ -703,6 +704,51 @@ timezone은 필수 문자열이며 앞뒤 공백을 제거한 뒤 Java `ZoneId`�
 
 상태: 기술 설계 확정안
 
+2.18.10 일정 생성 요청·응답 계약
+POST /api/v1/schedules는 CALTALK_SESSION으로 인증된 현재 사용자의 일정을 직접 생성하는 보호 API다. 공개 경로와 CSRF 예외 목록에 추가하지 않는다. 세션 principal의 정규화 이메일로 users를 조회하고 해당 사용자의 id를 schedules.owner_user_id로 사용하며, 요청에서 사용자 ID·이메일·시간대를 받지 않는다.
+
+요청 JSON은 다음 네 필드만 사용한다.
+
+```json
+{
+  "title": "팀 회의",
+  "startAt": "2026-08-01T10:00:00+09:00",
+  "endAt": "2026-08-01T11:00:00+09:00",
+  "location": "회의실 A"
+}
+```
+
+title은 필수 문자열이며 앞뒤 공백 제거 후 1자 이상 200자 이하다. 누락·null·빈 문자열·공백 전용 값은 title의 REQUIRED, 200자 초과는 title의 MAX_LENGTH fieldError로 HTTP 422 + VALIDATION_ERROR를 반환한다. location은 선택 문자열이며 앞뒤 공백을 제거하고 최대 200자로 제한한다. null과 누락을 허용하고 trim 후 빈 문자열은 null로 저장하며, 200자 초과는 location의 MAX_LENGTH fieldError로 같은 422 오류를 반환한다.
+
+startAt과 endAt은 필수 ISO-8601 offset date-time 문자열이며 UTC 오프셋을 반드시 포함한다. 서버는 요청 오프셋을 반영해 UTC Instant로 변환하고 schedules.start_at·end_at에 절대값만 저장한다. 입력 문자열과 사용자 timezone을 일정 레코드에 중복 저장하지 않는다. endAt은 startAt보다 반드시 늦어야 하며 동일하거나 빠르면 endAt의 INVALID_TIME_RANGE fieldError와 “종료 시각은 시작 시각보다 늦어야 합니다.” 메시지로 HTTP 422 + VALIDATION_ERROR를 반환한다. 과거 절대 시각의 PWA 직접 생성은 허용한다.
+
+description, allDay, userId, ownerUserId, email, timezone, recurrence, reminder, participants, color, category, createdAt, updatedAt, version 등 계약 외 필드는 요청 DTO에 포함하지 않는다. 계약 외 필드가 전달되면 무시해 저장하는 대신 HTTP 422 + VALIDATION_ERROR로 요청을 거부하며, 입력 전체 원문과 소유자 관련 값을 오류 응답에 반사하지 않는다. 반복·종일·알림·참석자·카테고리·색상은 MVP 범위에 추가하지 않는다.
+
+입력과 소유권 검증 뒤 같은 owner_user_id의 기존 일정 중 `existing.start_at < candidateEndAt AND existing.end_at > candidateStartAt`을 만족하는 일정을 조회한다. 한 일정의 종료와 다른 일정의 시작이 정확히 맞닿는 경우는 충돌이 아니다. 충돌이 없으면 현재 사용자 조회, 일정과 CREATE 변경 이력 저장, 응답 생성까지 하나의 트랜잭션에서 처리한다. 저장 실패 시 일정과 이력을 모두 롤백하며 외부 API와 Redis를 호출하지 않는다.
+
+충돌이 있으면 최초 POST에서 일정과 이력을 저장하지 않고 HTTP 409 + SCHEDULE_CONFLICT, confirmationId와 충돌 목록을 반환한다. 클라이언트 승인 boolean을 최초 요청이나 재요청에 추가하지 않으며, 사용자는 POST /api/v1/confirmations/{confirmationId}/approve의 기존 공통 흐름으로 계속 생성을 승인한다. 승인 엔드포인트는 2.18.3의 HTTP 200 계약을 유지하고 confirmation의 만료·소유권·중복 소비·최신 충돌을 다시 검증한다. 다른 사용자의 일정은 충돌 조회 대상이 아니다. 일반 POST를 같은 값으로 반복하면 별개의 생성 요청으로 처리하되, 각 요청 시점에 충돌이 있으면 동일한 confirmation 절차를 거친다.
+
+충돌 없는 생성 성공은 HTTP 201 Created, `Cache-Control: no-store`, `Location: /api/v1/schedules/{id}`와 다음 JSON을 반환한다.
+
+```json
+{
+  "id": 1,
+  "title": "팀 회의",
+  "startAt": "2026-08-01T01:00:00Z",
+  "endAt": "2026-08-01T02:00:00Z",
+  "location": "회의실 A",
+  "createdAt": "2026-07-31T01:30:00Z",
+  "updatedAt": "2026-07-31T01:30:00Z",
+  "version": 0
+}
+```
+
+startAt, endAt, createdAt, updatedAt은 UTC ISO-8601 Z 표기다. location이 없으면 null을 반환한다. 응답에는 owner_user_id, userId, email, password, sessionId, token, secret과 confirmation 내부 정보를 포함하지 않는다.
+
+미인증 요청은 HTML 리다이렉트 없이 HTTP 401 + UNAUTHORIZED JSON, CSRF 누락·불일치는 HTTP 403 + FORBIDDEN JSON을 반환한다. Authentication은 있으나 users 레코드가 없으면 2.18.8의 경로를 재사용해 세션을 무효화하고 SecurityContext를 제거하며 CALTALK_SESSION을 삭제한 뒤 사용자 존재 여부 노출 없이 401로 처리한다. 예상하지 못한 서버 오류는 HTTP 500 + SERVER_ERROR 공통 JSON으로 일반화하고 SQL 메시지·내부 클래스명·이메일·세션·쿠키·입력 전체 원문을 노출하지 않는다.
+
+상태: 기술 설계 확정안
+
 2.19 보안·개인정보·요청 제한
 2.19.1 최소 수집·최소 전송·개인정보 안내
 LLM에는 명령 해석에 필요한 최소 정보만 전달, 이메일·내부 ID·인증 토큰 미전달(확정). 개인정보 처리 안내에는 "자연어 입력이 외부 API로 전달될 수 있다"는 사실만 반영한다(2.12.2). 운영 로그에 사용자 입력 원문을 무분별하게 남기지 않는다. API 키, DB 접속정보, 세션/CSRF 비밀값, HMAC 서버 비밀키는 환경변수로 관리한다.
@@ -753,6 +799,10 @@ DB 장애	성공하지 않은 변경을 성공으로 응답하지 않음
 시간대 변경 단위·MVC 테스트: 인증된 PATCH /api/v1/users/me의 200, timezone 단일 요청 필드, trim 적용, 지역 기반 IANA Zone ID 허용, 빈 값·공백·존재하지 않는 ID·KST·GMT+9·UTC+09:00 거부, 422 VALIDATION_ERROR와 timezone의 INVALID_TIMEZONE fieldError, email·createdAt 유지, Cache-Control no-store와 민감 필드 부재를 검증한다.
 시간대 변경 통합·보안 테스트: users.timezone만 변경되고 GET /api/v1/users/me에서 변경값이 확인되는지, 동일 값 재요청도 200인지, email·password_hash·created_at·사용자 ID와 일정 UTC 값 및 DB 스키마가 불변인지 검증한다. 미인증 401 UNAUTHORIZED, 사용자 없는 인증 세션 정리, CSRF 누락·불일치 403 FORBIDDEN, 다른 사용자 변경 불가와 마지막 정상 커밋 값의 최종 반영도 검증한다.
 시간대 변경 클라이언트 테스트: 성공 시 사용자 정보·오늘 일정·월간 캘린더·선택 날짜 목록·열린 일정 상세를 무효화하거나 재조회하고 새 시간대 기준으로 모든 날짜·시각 표시와 오늘·선택 날짜 포함 여부를 다시 계산하는지 검증한다. 실패 시 기존 시간대와 일정 캐시를 유지하고 필드 검증 오류와 일반 서버 오류를 구분하는지 검증한다.
+일정 생성 단위·MVC 테스트: title 필수·trim·공백 거부·200자 경계, location 선택·trim·빈 값의 null 변환·200자 경계, startAt·endAt 필수·offset date-time 형식, endAt > startAt, 과거 일정 허용과 계약 외 필드 거부를 검증한다. 입력 오류는 422 VALIDATION_ERROR와 title·location·endAt의 REQUIRED·MAX_LENGTH·INVALID_TIME_RANGE fieldError를 사용하고 입력 전체 원문을 노출하지 않는지 확인한다.
+일정 생성 통합 테스트: 인증 후 충돌 없는 POST /api/v1/schedules의 201, Cache-Control no-store, Location 헤더, 현재 사용자의 owner_user_id, UTC Instant 저장, CREATE 변경 이력, location null·trim, 응답의 id·title·startAt·endAt·location·createdAt·updatedAt·version과 UTC Z 표기, 소유자·인증·민감 필드 부재를 PostgreSQL에서 검증한다.
+일정 생성 충돌 테스트: 같은 사용자의 겹치는 범위는 최초 POST에서 DB 변경 없이 409 SCHEDULE_CONFLICT와 confirmationId·충돌 목록을 반환하고, 맞닿는 경계와 다른 사용자 일정은 충돌로 보지 않는지 확인한다. 승인 후 한 번만 생성되는지, 위조·타 사용자 confirmation 사용·만료·중복 승인·승인 대기 중 충돌 변경을 기존 공통 confirmation 계약대로 처리하는지 검증한다.
+일정 생성 인증·트랜잭션 테스트: 미인증 401 UNAUTHORIZED, CSRF 누락·불일치 403 FORBIDDEN, 요청 userId·ownerUserId로 소유자를 바꿀 수 없음, 사용자 없는 인증 세션 정리, 일정·이력 저장 실패 시 전체 롤백, 일반 동일 요청 반복의 별도 일정 생성과 다른 사용자 일정 불변을 검증한다.
 로그인 제한 테스트: 정규화 이메일로 식별한 계정의 15분·5회 잠금과 성공 후 초기화, IP의 15분·20회 제한 및 429 RATE_LIMITED·초 단위 Retry-After를 검증한다.
 단위 테스트: 충돌 판정, 지속시간 유지, 낙관적 잠금 버전 비교, conflict_snapshot_hash/candidate_fingerprint 계산(정규화 규칙 포함), login_security_state의 15분 롤링 윈도·잠금 로직
 통합 테스트: 확인 승인의 잠금→검증→소비/재계산 전체 흐름, PWA 충돌 확인이 자연어 흐름과 동일한 승인 엔드포인트를 공유하는지
