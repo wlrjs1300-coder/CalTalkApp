@@ -185,6 +185,10 @@ CalTalk MVP의 화면과 기능을 하나의 문서로 통합하여 인증, PWA 
 6.8 SCR-SCHED-002 — 일정 등록
 입력: 제목, 날짜, 시작 시간, 종료 시간, 장소, 다음 날 종료 토글.
 제목·날짜·시작·종료는 필수이고 장소는 선택이다.
+서버 요청 필드는 title, startAt, endAt, location 네 개다. 날짜·시작 시간·종료 시간·다음 날 종료 토글은 UTC 오프셋을 포함한 startAt·endAt을 만들기 위한 화면 입력이며 allDay를 전송하지 않는다.
+제목은 앞뒤 공백을 제거한 뒤 1자 이상 200자 이하여야 한다. 누락·빈 값·공백 전용 값은 REQUIRED, 200자 초과는 MAX_LENGTH 필드 오류로 표시한다.
+장소는 앞뒤 공백을 제거하고 최대 200자다. 누락·null·빈 문자열을 허용하며 trim 후 빈 문자열은 null로 전송·저장하고, 200자 초과는 MAX_LENGTH 필드 오류로 표시한다.
+startAt과 endAt은 UTC 오프셋을 포함한 ISO-8601 offset date-time으로 전송한다. 오프셋 없는 값과 누락은 저장하지 않으며, 종료가 시작과 같거나 빠르면 endAt의 INVALID_TIME_RANGE와 “종료 시각은 시작 시각보다 늦어야 합니다.”를 표시한다.
 시작 시간 입력 시 종료 시간을 시작+1시간으로 자동 채운다.
 사용자가 종료 시간을 직접 수정하기 전 시작 시간이 바뀌면 종료 시간도 같은 차이만큼 이동한다.
 종료 시간 직접 수정 후 시작 시간 변경 시 동작은 최종 구현 결정 전 확인이 필요하다.
@@ -194,8 +198,12 @@ CalTalk MVP의 화면과 기능을 하나의 문서로 통합하여 인증, PWA 
 PWA 직접 입력은 과거 일정도 허용하되 절대 날짜와 시간을 저장 전에 명확히 표시한다.
 충돌 없음: 저장 클릭을 최종 확인으로 보고 즉시 저장.
 충돌 있음: 409 SCHEDULE_CONFLICT의 confirmationId로 DLG-CONFLICT-001을 연다. 최초 요청에 클라이언트 승인 플래그를 보내지 않는다.
+성공: 201 응답을 받으면 입력 화면을 닫고 성공 안내를 표시한 뒤 선택 날짜 일정 목록, 홈의 오늘 일정, 월간 캘린더를 무효화하거나 다시 조회한다. 생성 일정이 현재 범위에 포함되면 즉시 표시하고 UTC 응답을 사용자 시간대로 변환한다.
+검증 실패: 입력 화면과 입력값을 유지하고 422 fieldErrors를 해당 필드에 표시한다. 서버 오류는 검증 오류와 구분한다.
+충돌 응답: 입력 화면과 값을 유지한 채 겹치는 일정을 DLG-CONFLICT-001에 표시한다. 취소하면 생성하지 않고 “그대로 저장”을 선택하면 POST /api/v1/confirmations/{confirmationId}/approve로 기존 확인 절차를 진행한다.
+인증 만료: 401이면 비로그인 상태로 전환하고 보호 화면 정책을 적용한다. CSRF 실패 403은 성공으로 처리하지 않는다.
 관련 API: POST /api/v1/schedules, 승인·취소 API.
-완료 기준: 서버로 보내는 종료 시간이 비어 있지 않다.
+완료 기준: 서버로 보내는 종료 시간이 비어 있지 않고 생성 성공 뒤 관련 일정 화면이 새 UTC 저장값의 사용자 시간대 표시로 갱신된다.
 6.9 SCR-SCHED-003 — 일정 수정
 입력은 기존 저장값으로 초기화한다.
 수정 가능 필드: 제목, 날짜, 시작, 종료, 장소.
@@ -403,12 +411,14 @@ DB 변경: 가입 성공 시 사용자 생성.
 실패: 422, 401, 409, 네트워크 오류.
 완료: 일정 상세에 저장값 표시.
 9.3 일정 등록 — 충돌 없음
-유효한 입력을 저장한다.
+title, startAt, endAt, location만 제출하며 화면의 날짜·시간을 UTC 오프셋이 포함된 시각으로 구성한다.
 서버가 소유권과 시간 규칙을 검증하고 충돌이 없으면 생성과 이력을 한 트랜잭션으로 반영한다.
-완료: 단일 일정이 생성된다.
+201, Cache-Control no-store, Location과 일정 상세 응답을 받으면 입력 화면을 닫고 성공 안내 후 선택 날짜·오늘 일정·월간 캘린더를 다시 조회한다.
+완료: 현재 사용자 소유의 단일 일정이 생성되고 UTC 응답이 사용자 시간대로 표시된다.
 9.4 일정 등록 — 충돌 있음
 서버는 최초 요청에서 DB를 변경하지 않고 confirmationId와 충돌 목록을 반환한다.
-사용자가 “그대로 저장”을 승인하면 서버가 충돌과 confirmation 상태를 재검증한다.
+화면은 입력값을 유지하고 DLG-CONFLICT-001을 표시한다. 취소하면 생성하지 않으며 “그대로 저장”은 POST /api/v1/confirmations/{confirmationId}/approve를 호출한다.
+서버가 충돌과 confirmation의 소유권·만료·소비 상태를 재검증하고 유효한 승인 한 번에만 생성한다.
 실패: 만료, superseded, 중복 승인.
 완료: 유효한 승인 한 번에만 생성된다.
 9.5 일정 상세 → 수정
@@ -512,6 +522,16 @@ Given 토글 OFF에서 종료가 시작 이하, When 저장하면, Then 저장�
 Given 과거 절대 날짜를 PWA에서 선택, When 저장하면, Then 명확한 절대 시각 확인 후 허용된다.
 Given 충돌 없는 직접 저장, When 저장하면, Then 즉시 한 번 반영된다.
 Given 충돌 있는 직접 저장, When 최초 요청하면, Then DB 변경 없이 confirmation이 반환된다.
+Given 인증된 사용자와 유효한 CSRF 토큰, When 유효한 title·startAt·endAt·location으로 충돌 없는 일정을 생성하면, Then 201과 Cache-Control no-store·일정 Location·상세 응답을 받는다.
+Given 제목과 장소에 앞뒤 공백이 있음, When 생성하면, Then trim된 제목·장소가 저장되고 빈 장소는 null로 저장된다.
+Given offset date-time 입력, When 생성하면, Then 오프셋을 반영한 UTC Instant가 저장되고 응답은 Z 표기를 사용한다.
+Given 제목 누락·공백·200자 초과 또는 장소 200자 초과, When 생성하면, Then 422 VALIDATION_ERROR와 해당 필드의 REQUIRED 또는 MAX_LENGTH를 받는다.
+Given 종료가 시작과 같거나 빠름, When 생성하면, Then 422와 endAt의 INVALID_TIME_RANGE를 받고 DB는 변경되지 않는다.
+Given description·allDay·userId 등 계약 외 필드, When 생성 요청에 포함하면, Then 422로 거부되고 소유자와 일정 데이터는 변경되지 않는다.
+Given 같은 사용자 일정과 시간 범위가 겹침, When 최초 생성하면, Then 409 SCHEDULE_CONFLICT와 confirmationId·충돌 목록을 받고 DB는 변경되지 않는다.
+Given 기존 일정 종료와 새 일정 시작이 맞닿음 또는 다른 사용자의 일정만 겹침, When 생성하면, Then 충돌로 판정하지 않는다.
+Given 유효한 본인 confirmationId, When 그대로 저장을 승인하면, Then 기존 공통 확인 검증 뒤 일정이 한 번만 생성된다.
+Given 일정 생성 성공, When 클라이언트가 처리하면, Then 입력 화면을 닫고 성공 안내 후 선택 날짜·오늘 일정·월간 캘린더를 재조회해 사용자 시간대로 표시한다.
 Given 동일 승인을 중복 실행, When 서버가 처리하면, Then DB 변경은 한 번만 발생한다.
 Given 자연어 필수값 누락, When 분석되면, Then 재질문하고 DB는 변경되지 않는다.
 Given 재질문 후 10분 경과, When 새 메시지를 보내면, Then 이전 후보를 폐기하고 새 요청으로 재해석한다.
@@ -529,7 +549,7 @@ Given 시간대 변경, When 저장하면, Then UTC 값은 유지되고 사용�
 Given 탈퇴 체크 미선택, When 화면을 보면, Then 삭제 버튼은 비활성화된다.
 Given 탈퇴 처리 오류, When 응답하면, Then 계정과 체크 상태가 유지된다.
 Given 다른 사용자 일정 URL, When 접근하면, Then 일정 내용 없이 403 또는 안전한 미노출 응답을 받는다.
-최종 수용 기준은 46개다.
+최종 수용 기준은 56개다.
 11. 화면별 API 연결
 11.1 확정 API
 POST /api/v1/auth/signup
@@ -558,7 +578,7 @@ SCR-HOME-001	오늘 일정	GET /api/v1/schedules	—	—	—
 SCR-CAL-001/002	월·일 일정	GET /api/v1/schedules	—	—	—
 SCR-SCHED-001	상세	GET /api/v1/schedules/{id} 제안	—	—	—
 SCR-SCHED-001	삭제	DELETE /api/v1/schedules/{id}	—	—	—
-SCR-SCHED-002	등록	POST /api/v1/schedules	—	—	—
+SCR-SCHED-002	등록	POST /api/v1/schedules	성공 시 선택 날짜 일정 목록, 홈의 오늘 일정, 월간 캘린더를 무효화하거나 재조회	충돌 없을 때 일정과 CREATE 이력을 한 트랜잭션으로 생성	201, Cache-Control no-store, Location과 일정 상세를 받고 입력 화면 닫기·성공 안내·사용자 시간대 표시
 SCR-SCHED-003	수정	PATCH /api/v1/schedules/{id}	—	—	—
 SCR-CHAT-001	메시지	POST /api/v1/chat/messages	—	—	—
 DLG-CHAT-TARGET-001	수정 대상 후보 선택	POST /api/v1/chat/messages 재사용	해당 없음	없음	자연어 수정 최종 확인 카드로 전환
@@ -797,6 +817,70 @@ UTC+09:00 HTTP 422
 
 동시 시간대 변경의 마지막 정상 처리 값 반영
 
+인증 후 POST /api/v1/schedules HTTP 201
+
+일정 생성 요청 필드 title·startAt·endAt·location
+
+일정과 CREATE 변경 이력 DB 저장
+
+현재 사용자 owner_user_id 저장
+
+입력 오프셋의 UTC Instant 변환 저장
+
+일정 응답 시각 UTC Z 표기
+
+일정 생성 Location 헤더
+
+일정 생성 Cache-Control no-store
+
+location 누락·빈 값의 null 저장
+
+title·location trim 저장
+
+일정 생성 응답 version
+
+제목 누락 HTTP 422 REQUIRED
+
+제목 공백 HTTP 422 REQUIRED
+
+제목 200자 초과 HTTP 422 MAX_LENGTH
+
+장소 200자 초과 HTTP 422 MAX_LENGTH
+
+startAt 누락 HTTP 422
+
+endAt 누락 HTTP 422
+
+오프셋 없는 일정 시각 HTTP 422
+
+종료와 시작 동일 HTTP 422 INVALID_TIME_RANGE
+
+종료가 시작보다 빠름 HTTP 422 INVALID_TIME_RANGE
+
+description·allDay·userId 등 계약 외 필드 HTTP 422
+
+같은 사용자 겹침 일정 HTTP 409 SCHEDULE_CONFLICT
+
+종료·시작 경계가 맞닿는 일정은 충돌 아님
+
+confirmation 승인 후 겹침 일정 생성
+
+다른 사용자 일정은 충돌 대상 아님
+
+confirmation 위조·타 사용자 사용 방지
+
+일정 생성 미인증 HTTP 401 UNAUTHORIZED
+
+일정 생성 CSRF 누락 HTTP 403 FORBIDDEN
+
+일정 생성 CSRF 불일치 HTTP 403 FORBIDDEN
+
+userId·ownerUserId로 일정 소유자 변경 불가
+
+일정 응답에 소유자·인증·민감정보 없음
+
+동일 일반 요청 반복의 별도 생성과 충돌 확인 적용
+
 카카오 미연결
 
 연결 코드 만료
@@ -820,7 +904,7 @@ UTC+09:00 HTTP 422
 탈퇴 서버 오류 시 데이터 유지
 
 실제 식별값·토큰·코드의 URL 비노출
-총 123개 점검 항목이다.
+총 155개 점검 항목이다.
 13. 구현 단계 전달사항
 13.1 인증 구현
 회원가입은 email, password, passwordConfirmation만 받고 이름과 시간대는 받지 않는다. 이메일은 trim·소문자 정규화 후 형식과 최대 254자를 검증한다.
@@ -839,6 +923,11 @@ UTC+09:00 HTTP 422
 13.2 PWA 일정 CRUD
 종료 시간 자동 채움과 다음 날 토글을 구현한다.
 충돌 시 클라이언트 승인 플래그가 아니라 서버 confirmation을 사용한다.
+일정 생성은 POST /api/v1/schedules에 title·startAt·endAt·location만 전송한다. title은 trim 후 필수·최대 200자, location은 trim 후 최대 200자이며 빈 값은 null로 처리한다. offset 없는 시각과 endAt이 startAt보다 늦지 않은 요청은 422 VALIDATION_ERROR로 거부하고 PWA 과거 일정은 허용한다.
+세션 principal의 이메일로 현재 사용자를 조회해 owner_user_id를 정하고 요청의 사용자 식별 필드와 계약 외 필드는 거부한다. 사용자 없는 인증 세션은 현재 사용자 조회와 같은 경로로 정리한다. 생성은 세션 인증과 CSRF 보호를 적용하고 일정·CREATE 이력을 하나의 트랜잭션에서 저장한다.
+충돌 없음은 201, Cache-Control no-store, Location과 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. 시각은 UTC Z 표기이며 소유자·인증·민감정보는 반환하지 않는다.
+같은 사용자 일정과 겹치면 최초 POST는 DB를 변경하지 않고 409 SCHEDULE_CONFLICT와 confirmationId·충돌 목록을 반환한다. 경계가 맞닿거나 다른 사용자 일정만 겹치면 충돌이 아니다. 승인은 기존 confirmation 엔드포인트를 사용하고 위조·소유권·만료·중복 소비를 재검증한다.
+성공 후 입력 화면을 닫고 안내를 표시하며 선택 날짜 일정 목록, 홈의 오늘 일정, 월간 캘린더를 무효화하거나 다시 조회한다. 검증·충돌 실패는 입력값을 유지하고 별도 캐시 API를 만들지 않는다.
 삭제는 즉시 하드 삭제이며 휴지통이 없다.
 13.3 웹 자연어 일정 관리
 PAST_DATETIME_REJECTED는 화면·API 명세 제안이며 구현 시 최종 응답 enum 채택 여부를 확정한다.
@@ -906,13 +995,13 @@ PENDING_COMMAND_EXPIRED reason 필드와 값의 최종 채택 여부
 
 사용자 흐름 18개 전문 수록
 
-수용 기준 46개 작성
+수용 기준 56개 작성
 
 API 경로를 /api/v1 전체 경로로 통일
 
 중복 제거 API 17종 재계산
 
-테스트 항목 45개 작성
+테스트 체크 항목 155개 작성
 
 자연어 과거 일정 거부 반영
 
@@ -941,6 +1030,7 @@ MVP 제외 기능 유지
 생략됐던 사용자 흐름을 전문으로 복원했다.
 자연어 확인 취소 API와 수정 후보 선택 API 매핑을 추가했다.
 시간대 변경 후 일정 관련 캐시 전체 갱신을 명시했다.
+일정 생성의 요청·검증·UTC 저장·소유권·충돌 확인·201 응답·재조회 계약을 확정했다.
 DLG-EXPIRED-001의 화면별 표시 형식을 구체화했다.
 연결 코드 발급 제한 안내 문구를 추가했다.
 모든 API를 /api/v1 전체 경로로 통일했다.
@@ -952,8 +1042,8 @@ DLG-EXPIRED-001의 화면별 표시 형식을 구체화했다.
 API: 17종(확정 14종, 화면·API 명세 제안 3종)
 
 사용자 흐름: 18개
-수용 기준: 46개
-테스트 체크 항목: 98개
+수용 기준: 56개
+테스트 체크 항목: 155개
 공통 상태·오류 사전: 21개 행
 20. 최종 자체 평가
 20.1 정합성
