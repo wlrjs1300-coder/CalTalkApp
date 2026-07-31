@@ -48,6 +48,25 @@ public class ConfirmationFingerprintService {
         return sha256(normalized);
     }
 
+    public String updateCandidate(
+            Long targetScheduleId,
+            String title,
+            Instant startAt,
+            Instant endAt,
+            String locationAction,
+            String locationValue
+    ) {
+        Map<String, Object> candidate = new LinkedHashMap<>();
+        candidate.put("command_type", "UPDATE_EVENT");
+        candidate.put("target_schedule_id", targetScheduleId);
+        candidate.put("title", title);
+        candidate.put("start_at", startAt == null ? null : startAt.toString());
+        candidate.put("end_at", endAt == null ? null : endAt.toString());
+        candidate.put("location_action", locationAction);
+        candidate.put("location_value", locationValue);
+        return sha256(json(candidate));
+    }
+
     private String json(Map<String, Object> value) {
         try {
             return objectMapper.writeValueAsString(value);

@@ -1,6 +1,7 @@
 package com.caltalk.backend.confirmation;
 
 import java.util.Optional;
+import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -29,4 +30,6 @@ public interface ConfirmationRequestRepository
             @Param("user") User user,
             @Param("fingerprint") String fingerprint
     );
+
+    List<ConfirmationRequest> findByTargetScheduleId(Long targetScheduleId);
 }
