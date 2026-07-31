@@ -62,6 +62,13 @@ public class Schedule {
         this.endAt = endAt;
     }
 
+    public void update(String title, String location, Instant startAt, Instant endAt) {
+        this.title = title;
+        this.location = location;
+        this.startAt = startAt;
+        this.endAt = endAt;
+    }
+
     @PrePersist
     void assignTimestamps() {
         Instant now = Instant.now();

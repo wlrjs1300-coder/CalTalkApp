@@ -114,6 +114,38 @@ public class ConfirmationRequest {
         this.expiresAt = createdAt.plusSeconds(300);
     }
 
+    public static ConfirmationRequest update(
+            User user,
+            Long targetScheduleId,
+            Long targetScheduleVersion,
+            String title,
+            Instant startAt,
+            Instant endAt,
+            String locationAction,
+            String locationValue,
+            String candidateFingerprint,
+            String conflictSnapshotHash,
+            Instant createdAt
+    ) {
+        ConfirmationRequest request = new ConfirmationRequest();
+        request.user = user;
+        request.originChannel = "PWA";
+        request.commandType = "UPDATE_EVENT";
+        request.targetScheduleId = targetScheduleId;
+        request.targetScheduleVersion = targetScheduleVersion;
+        request.title = title;
+        request.startAt = startAt;
+        request.endAt = endAt;
+        request.locationAction = locationAction;
+        request.locationValue = locationValue;
+        request.candidateFingerprint = candidateFingerprint;
+        request.conflictSnapshotHash = conflictSnapshotHash;
+        request.status = ConfirmationStatus.PENDING;
+        request.createdAt = createdAt;
+        request.expiresAt = createdAt.plusSeconds(300);
+        return request;
+    }
+
     public Long getId() {
         return id;
     }
@@ -121,6 +153,11 @@ public class ConfirmationRequest {
     public User getUser() {
         return user;
     }
+
+    public String getCommandType() { return commandType; }
+    public Long getTargetScheduleId() { return targetScheduleId; }
+    public Long getTargetScheduleVersion() { return targetScheduleVersion; }
+    public String getLocationAction() { return locationAction; }
 
     public String getTitle() {
         return title;
@@ -167,5 +204,9 @@ public class ConfirmationRequest {
     public void supersedeBy(ConfirmationRequest replacement) {
         status = ConfirmationStatus.SUPERSEDED;
         supersededBy = replacement;
+    }
+
+    public void detachTarget() {
+        targetScheduleId = null;
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -113,6 +114,43 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(InvalidScheduleUpdateException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidScheduleUpdate(
+            InvalidScheduleUpdateException exception
+    ) {
+        return errorResponse(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "VALIDATION_ERROR",
+                VALIDATION_MESSAGE,
+                List.of(new FieldErrorResponse(
+                        exception.getField(), exception.getErrorCode(), exception.getMessage()))
+        );
+    }
+
+    @ExceptionHandler(ScheduleVersionConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleScheduleVersionConflict(
+            ScheduleVersionConflictException exception
+    ) {
+        return errorResponse(
+                HttpStatus.CONFLICT,
+                "SCHEDULE_VERSION_CONFLICT",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiErrorResponse> handleOptimisticLockingFailure(
+            ObjectOptimisticLockingFailureException exception
+    ) {
+        return errorResponse(
+                HttpStatus.CONFLICT,
+                "SCHEDULE_VERSION_CONFLICT",
+                "The schedule has been changed. Reload it and try again.",
+                List.of()
+        );
+    }
+
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ApiErrorResponse> handleMissingRequestParameter(
             MissingServletRequestParameterException exception
@@ -188,6 +226,18 @@ public class GlobalExceptionHandler {
         return errorResponse(
                 HttpStatus.NOT_FOUND,
                 "CONFIRMATION_NOT_FOUND",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ConfirmationTargetGoneException.class)
+    public ResponseEntity<ApiErrorResponse> handleConfirmationTargetGone(
+            ConfirmationTargetGoneException exception
+    ) {
+        return errorResponse(
+                HttpStatus.NOT_FOUND,
+                "CONFIRMATION_TARGET_GONE",
                 exception.getMessage(),
                 List.of()
         );

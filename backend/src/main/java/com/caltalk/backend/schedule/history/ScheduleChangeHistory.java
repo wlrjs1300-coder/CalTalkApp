@@ -81,6 +81,30 @@ public class ScheduleChangeHistory {
         return history;
     }
 
+    public static ScheduleChangeHistory updated(
+            Schedule schedule,
+            User user,
+            String titleBefore,
+            Instant startAtBefore,
+            Instant endAtBefore,
+            String locationBefore
+    ) {
+        ScheduleChangeHistory history = new ScheduleChangeHistory();
+        history.schedule = schedule;
+        history.changedBy = user;
+        history.sourceChannel = "PWA";
+        history.changeType = "UPDATE";
+        history.titleBefore = titleBefore;
+        history.startAtBefore = startAtBefore;
+        history.endAtBefore = endAtBefore;
+        history.locationBefore = locationBefore;
+        history.titleAfter = schedule.getTitle();
+        history.startAtAfter = schedule.getStartAt();
+        history.endAtAfter = schedule.getEndAt();
+        history.locationAfter = schedule.getLocation();
+        return history;
+    }
+
     @PrePersist
     void assignChangedAt() {
         changedAt = Instant.now();
