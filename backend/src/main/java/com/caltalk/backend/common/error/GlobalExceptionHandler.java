@@ -10,8 +10,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.caltalk.backend.schedule.ScheduleConflictResponse;
 
@@ -92,6 +94,66 @@ public class GlobalExceptionHandler {
                         "INVALID_TIME_RANGE",
                         exception.getMessage()
                 ))
+        );
+    }
+
+    @ExceptionHandler(InvalidScheduleQueryRangeException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidScheduleQueryRange(
+            InvalidScheduleQueryRangeException exception
+    ) {
+        return errorResponse(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "VALIDATION_ERROR",
+                VALIDATION_MESSAGE,
+                List.of(new FieldErrorResponse(
+                        "to",
+                        "INVALID_TIME_RANGE",
+                        exception.getMessage()
+                ))
+        );
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingRequestParameter(
+            MissingServletRequestParameterException exception
+    ) {
+        return errorResponse(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "VALIDATION_ERROR",
+                VALIDATION_MESSAGE,
+                List.of(new FieldErrorResponse(
+                        exception.getParameterName(),
+                        "REQUIRED",
+                        "필수 입력값입니다."
+                ))
+        );
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleArgumentTypeMismatch(
+            MethodArgumentTypeMismatchException exception
+    ) {
+        return errorResponse(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "VALIDATION_ERROR",
+                VALIDATION_MESSAGE,
+                List.of(new FieldErrorResponse(
+                        exception.getName(),
+                        "INVALID_FORMAT",
+                        "올바른 형식으로 입력해주세요."
+                ))
+        );
+    }
+
+    @ExceptionHandler(ScheduleNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleScheduleNotFound(
+            ScheduleNotFoundException exception
+    ) {
+        return errorResponse(
+                HttpStatus.NOT_FOUND,
+                "SCHEDULE_NOT_FOUND",
+                exception.getMessage(),
+                List.of()
         );
     }
 
