@@ -49,6 +49,21 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(InvalidTimezoneException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidTimezone(InvalidTimezoneException exception) {
+        FieldErrorResponse fieldError = new FieldErrorResponse(
+                "timezone",
+                "INVALID_TIMEZONE",
+                exception.getMessage()
+        );
+        return errorResponse(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "VALIDATION_ERROR",
+                VALIDATION_MESSAGE,
+                List.of(fieldError)
+        );
+    }
+
     @ExceptionHandler(DuplicateEmailException.class)
     public ResponseEntity<ApiErrorResponse> handleDuplicateEmail(DuplicateEmailException exception) {
         return errorResponse(
@@ -105,6 +120,13 @@ public class GlobalExceptionHandler {
         String field = error.getField();
         String validationCode = error.getCode();
 
+        if ("timezone".equals(field)) {
+            return new FieldErrorResponse(
+                    field,
+                    "INVALID_TIMEZONE",
+                    "올바른 시간대를 선택해주세요."
+            );
+        }
         if ("password".equals(field)
                 && "NotBlank".equals(validationCode)
                 && error.getRejectedValue() instanceof String rejectedValue
