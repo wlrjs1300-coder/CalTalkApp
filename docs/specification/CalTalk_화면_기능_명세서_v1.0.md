@@ -264,7 +264,16 @@ CSRF 토큰 누락·불일치는 403 FORBIDDEN 공통 JSON 오류로 표시하�
 목적: 일정 표시와 상대 날짜 해석 기준을 변경한다.
 입력: 지원 시간대 선택.
 기본값: 현재 저장된 사용자 시간대.
-시간대 변경 API: PATCH /api/v1/users/me 화면·API 명세 제안.
+시간대 변경 API: PATCH /api/v1/users/me.
+요청: 앞뒤 공백을 제거한 IANA Time Zone ID인 timezone 하나만 전송한다. 이메일·비밀번호·사용자 ID·생성 시각·역할 정보는 전송하지 않는다.
+허용 예: Asia/Seoul, Asia/Tokyo, America/New_York, Europe/London.
+거부 예: 빈 값, 공백 전용 값, 존재하지 않는 Zone ID, KST, GMT+9, UTC+09:00, Seoul.
+저장 중: 저장 액션을 비활성화해 동일 화면의 중복 제출을 막는다.
+성공: HTTP 200과 Cache-Control no-store 응답의 email·timezone·createdAt을 사용자 상태에 반영하고 성공 안내를 표시한다. 같은 시간대 재저장도 성공으로 처리한다.
+입력 실패: HTTP 422 VALIDATION_ERROR의 timezone·INVALID_TIMEZONE fieldError를 시간대 입력에 연결하고 “올바른 시간대를 선택해주세요.”를 표시한다.
+인증 실패: HTTP 401 UNAUTHORIZED이면 인증 상태를 초기화하고 보호 화면 정책에 따라 시작 화면으로 이동한다. 사용자 없는 인증 세션도 같은 상태로 처리하며 404로 구분하지 않는다.
+CSRF 실패: HTTP 403 FORBIDDEN이면 기존 시간대를 유지하고 저장 성공으로 처리하지 않는다.
+일반 서버 실패: 입력 오류와 구분되는 공통 오류를 표시하고 기존 시간대와 일정 캐시를 유지한다.
 별도 캐시 API는 추가하지 않는다.
 저장 성공 후 프런트엔드는 다음 데이터를 무효화하거나 다시 조회한다.
 GET /api/v1/users/me 사용자 정보
@@ -274,7 +283,7 @@ GET /api/v1/users/me 사용자 정보
 현재 열려 있는 일정 상세의 표시값
 그 후 사용자 시간대 기준으로 날짜, 요일, 시작 시간, 종료 시간, 오늘 및 선택 날짜 기준을 다시 계산한다.
 기존 일정의 UTC 절대 저장값은 변경하지 않는다.
-완료 기준: 저장 시각은 그대로이고 표시와 날짜 구분만 새 시간대 기준으로 갱신된다.
+완료 기준: users.timezone만 바뀌고 저장된 일정의 UTC 절대값은 그대로이며 표시와 날짜 구분만 새 시간대 기준으로 갱신된다.
 6.14 SCR-SET-003 — 회원 탈퇴 확인
 경고: 계정, 일정, 변경 이력, 카카오 연결, 연결 코드, 대기 명령, 확인 요청, 사용자 범위 멱등성 기록과 로그인 보안 상태가 즉시 삭제된다.
 확인 체크박스: 삭제 범위와 비가역성을 명시한다.
@@ -527,6 +536,7 @@ POST /api/v1/auth/signup
 POST /api/v1/auth/login
 POST /api/v1/auth/logout
 GET /api/v1/users/me
+PATCH /api/v1/users/me
 GET /api/v1/schedules
 POST /api/v1/schedules
 PATCH /api/v1/schedules/{id}
@@ -538,10 +548,9 @@ POST /api/v1/kakao/link-codes
 POST /api/v1/kakao/links/revoke
 11.2 화면·API 명세 제안
 GET /api/v1/schedules/{id}
-PATCH /api/v1/users/me
 DELETE /api/v1/users/me
 GET /api/v1/kakao/link
-중복 제거 후 총 17종이다.
+중복 제거 후 총 17종(확정 14종, 화면·API 명세 제안 3종)이다.
 화면·UI	액션	API	캐시 무효화 또는 재조회	일정 DB 변경	결과
 SCR-AUTH-001	가입	POST /api/v1/auth/signup	—	없음	users에 정규화 email·BCrypt password_hash·Asia/Seoul timezone·UTC created_at 저장, 201 응답 후 로그인 화면 이동
 SCR-AUTH-002	로그인	POST /api/v1/auth/login	GET /api/v1/users/me 사용자 정보 재조회	없음	200 응답과 CALTALK_SESSION 생성 후 안전한 복귀 경로 또는 홈 이동
@@ -563,7 +572,7 @@ SCR-KAKAO-001	연결 해제	POST /api/v1/kakao/links/revoke	—	—	—
 앱 공통	인증 상태 복원	GET /api/v1/users/me	응답을 HTTP 캐시에 저장하지 않고 사용자 메모리 상태 갱신	없음	200이면 email·timezone·createdAt 복원, 401이면 공개 화면 유지 또는 보호 화면에서 시작 화면 이동
 SCR-SET-001	사용자 정보	GET /api/v1/users/me	Cache-Control no-store	없음	email·timezone·createdAt만 반환
 SCR-SET-001	로그아웃	POST /api/v1/auth/logout	인증 상태와 사용자 캐시 초기화	없음	유효한 CSRF 토큰이면 인증 여부와 무관하게 현재 세션·SecurityContext 종료와 CALTALK_SESSION 삭제 후 204, 시작 화면 이동
-SCR-SET-002	시간대 저장	PATCH /api/v1/users/me 제안	GET /api/v1/users/me 사용자 정보, 홈 화면의 오늘 일정, 월간 캘린더 일정, 선택 날짜 일정 목록, 현재 열려 있는 일정 상세의 표시값을 무효화하거나 다시 조회하고 사용자 시간대 기준으로 날짜·요일·시작 시간·종료 시간·오늘 및 선택 날짜 기준을 다시 계산	없음	기존 일정의 UTC 절대 저장값을 유지한 채 새 시간대 기준으로 표시 갱신
+SCR-SET-002	시간대 저장	PATCH /api/v1/users/me	GET /api/v1/users/me 사용자 정보, 홈 화면의 오늘 일정, 월간 캘린더 일정, 선택 날짜 일정 목록, 현재 열려 있는 일정 상세의 표시값을 무효화하거나 다시 조회하고 사용자 시간대 기준으로 날짜·요일·시작 시간·종료 시간·오늘 및 선택 날짜 기준을 다시 계산	없음	200과 email·timezone·createdAt, Cache-Control no-store를 받고 기존 일정의 UTC 절대 저장값을 유지한 채 새 시간대 기준으로 표시 갱신
 SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
 
 12. 테스트 체크리스트
@@ -738,6 +747,56 @@ CONFIRMATION_TARGET_GONE
 
 기존 일정 UTC 값 불변
 
+인증 후 PATCH /api/v1/users/me HTTP 200
+
+시간대 변경 요청 필드는 timezone 하나
+
+유효한 지역 기반 IANA 시간대 저장
+
+timezone 앞뒤 공백 제거
+
+시간대 변경 응답의 email·timezone·createdAt
+
+시간대 변경 응답 Cache-Control no-store
+
+동일 시간대 재요청 HTTP 200
+
+빈 timezone HTTP 422
+
+공백 timezone HTTP 422
+
+존재하지 않는 Zone ID HTTP 422
+
+KST HTTP 422
+
+GMT+9 HTTP 422
+
+UTC+09:00 HTTP 422
+
+시간대 오류 code VALIDATION_ERROR
+
+시간대 fieldErrors의 timezone·INVALID_TIMEZONE
+
+시간대 변경 미인증 HTTP 401 UNAUTHORIZED
+
+시간대 변경 CSRF 누락 HTTP 403 FORBIDDEN
+
+시간대 변경 CSRF 불일치 HTTP 403 FORBIDDEN
+
+시간대 응답에 민감 정보 없음
+
+다른 사용자 시간대 변경 불가
+
+시간대 변경 뒤 email·createdAt 불변
+
+시간대 변경 뒤 users.timezone 외 사용자 컬럼 불변
+
+시간대 변경 뒤 DB 스키마 불변
+
+시간대 변경 실패 시 기존 시간대·일정 캐시 유지
+
+동시 시간대 변경의 마지막 정상 처리 값 반영
+
 카카오 미연결
 
 연결 코드 만료
@@ -761,7 +820,7 @@ CONFIRMATION_TARGET_GONE
 탈퇴 서버 오류 시 데이터 유지
 
 실제 식별값·토큰·코드의 URL 비노출
-총 98개 점검 항목이다.
+총 123개 점검 항목이다.
 13. 구현 단계 전달사항
 13.1 인증 구현
 회원가입은 email, password, passwordConfirmation만 받고 이름과 시간대는 받지 않는다. 이메일은 trim·소문자 정규화 후 형식과 최대 254자를 검증한다.
@@ -794,7 +853,9 @@ PENDING_COMMAND_EXPIRED reason 필드와 값도 구현 시 최종 채택 여부�
 자동 폴링과 실시간 push를 추가하지 않는다.
 카카오 응답에서는 동일 상태를 스킬 규격 정상 JSON 내부 문구로 변환한다.
 13.5 안정화
-시간대 변경은 PATCH /api/v1/users/me로 처리하며 별도 캐시 API를 추가하지 않는다.
+시간대 변경은 PATCH /api/v1/users/me로 처리하며 별도 캐시 API를 추가하지 않는다. timezone 하나만 받고 trim 후 지역 기반 IANA Zone ID인지 Java ZoneId로 검증한다. 빈 값·공백·존재하지 않는 ID·약어·고정 오프셋은 422 VALIDATION_ERROR와 timezone의 INVALID_TIMEZONE fieldError로 거부한다.
+PATCH는 CALTALK_SESSION 인증과 CSRF 보호를 적용한다. 성공은 동일 값 재요청을 포함해 200, Cache-Control no-store와 email·timezone·createdAt을 반환한다. 미인증 또는 사용자 없는 인증 세션은 401 UNAUTHORIZED, CSRF 누락·불일치는 403 FORBIDDEN으로 처리한다.
+하나의 트랜잭션에서 현재 사용자의 users.timezone만 변경하고 email·password_hash·created_at·사용자 ID·일정 UTC 값과 DB 스키마는 변경하지 않는다. 동시 요청은 마지막 정상 처리 값을 최종 상태로 사용한다.
 저장 성공 후 GET /api/v1/users/me 사용자 정보, 홈 화면의 오늘 일정, 월간 캘린더 일정, 선택 날짜 일정 목록, 현재 열려 있는 일정 상세의 표시값을 무효화하거나 다시 조회한다.
 그 후 사용자 시간대 기준으로 날짜, 요일, 시작 시간, 종료 시간, 오늘 및 선택 날짜 기준을 다시 계산하며 기존 일정의 UTC 절대 저장값은 변경하지 않는다.
 confirmation 동시 승인, 최초 동일 후보 생성 경쟁, 대상 변경·삭제를 테스트한다.
@@ -827,7 +888,7 @@ PoC가 실패하거나 범위 조정 조건에 해당하면 PWA와 웹 자연어
 16. 보류·확인 필요 항목
 다음 날을 넘는 다중 일자 일정 허용 여부와 최대 기간
 계정 설정의 비밀번호 변경 기능 포함 여부
-화면 명세 제안 API 4종의 최종 채택
+화면 명세 제안 API 3종의 최종 채택
 수정 후보 선택 DTO의 정확한 필드명
 PAST_DATETIME_REJECTED의 최종 응답 enum 채택 여부
 PENDING_COMMAND_EXPIRED reason 필드와 값의 최종 채택 여부
@@ -888,7 +949,7 @@ DLG-EXPIRED-001의 화면별 표시 형식을 구체화했다.
 19. 최종 목록과 개수
 화면: 15개
 다이얼로그·시트·상태 UI: 17개
-API: 17종(확정 13종, 화면·API 명세 제안 4종)
+API: 17종(확정 14종, 화면·API 명세 제안 3종)
 
 사용자 흐름: 18개
 수용 기준: 46개
