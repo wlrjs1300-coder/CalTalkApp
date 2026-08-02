@@ -2,9 +2,9 @@
 
 ## 현재 상태
 
-**Local Web MVP Core Complete · Deployment Pending**
+**Local Web MVP Core Complete · Deployment Configuration Complete · External Deployment Pending**
 
-기준 커밋 `d20e928`에서 backend 96개, frontend 30개, Playwright E2E 5개가 통과합니다. 현재 공개 범위는 로컬 Web MVP의 backend, React frontend, PostgreSQL migration, 보안 계약, 동시성 처리와 실제 브라우저 검증입니다.
+기준 커밋 `fdf4c02`에서 backend 96개, frontend 30개, 개발 Playwright E2E 5개와 production Compose E2E 5개가 통과합니다. 현재 공개 범위는 로컬 Web MVP의 backend, React frontend, PostgreSQL migration, 보안 계약, 동시성 처리, 실제 브라우저 검증과 범용 Docker 배포 구성입니다.
 
 ## 완료된 범위
 
@@ -39,16 +39,17 @@
 - 로그아웃 후 이전 session 재사용 차단
 - 고유 테스트 데이터와 실제 회원 탈퇴 cleanup
 
-## 다음 단계 1: 운영 배포
+## 완료된 배포 준비와 다음 단계 1: 외부 운영 배포
 
-- HTTPS와 `SESSION_COOKIE_SECURE=true`
-- 실제 frontend origin 또는 same-origin reverse proxy
-- 운영 PostgreSQL credential 외부 주입
-- migration 배포 전후 검증
-- health/readiness와 무중단 종료
+- same-origin Nginx reverse proxy와 production container 구성
+- `SESSION_COOKIE_SECURE=true`, 운영 CORS 환경변수와 forwarded header 지원
+- PostgreSQL credential 외부 주입, named volume과 private network
+- Flyway V1~V4, health/readiness와 graceful shutdown 검증
+- production Compose 기반 Playwright E2E 5개 통과
+- 실제 HTTPS edge, DNS와 secrets manager 구성
 - 실제 배포 URL과 운영 제한사항 공개
 
-현재는 배포 전 단계이며 production ready로 표현하지 않습니다.
+배포 구성과 로컬 production smoke는 완료했지만 실제 외부 배포는 수행하지 않았으므로 production ready 또는 공개 서비스 완료로 표현하지 않습니다.
 
 ## 다음 단계 2: 운영 안전성
 
