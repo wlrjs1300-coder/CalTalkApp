@@ -1,12 +1,15 @@
 import { expect, test } from './fixtures';
 import {
   cleanupAccount,
+  E2E_API_BASE_URL,
   login,
   signup,
   signupAndLogin,
   TEST_PASSWORD,
   uniqueEmail,
 } from './helpers';
+
+const expectedSecureCookie = process.env.E2E_EXPECT_SECURE_COOKIE === 'true';
 
 test('signs up, rejects duplicates and bad credentials, restores and ends the server session', async ({
   page,
@@ -40,7 +43,11 @@ test('signs up, rejects duplicates and bad credentials, restores and ends the se
   const sessionCookie = (await context.cookies()).find(
     (cookie) => cookie.name === 'CALTALK_SESSION',
   );
-  expect(sessionCookie).toMatchObject({ httpOnly: true, secure: false, sameSite: 'Lax' });
+  expect(sessionCookie).toMatchObject({
+    httpOnly: true,
+    secure: expectedSecureCookie,
+    sameSite: 'Lax',
+  });
 
   await page.reload();
   await expect(page.getByText(email)).toBeVisible();
@@ -52,18 +59,22 @@ test('signs up, rejects duplicates and bad credentials, restores and ends the se
   await page.getByRole('button', { name: '변경' }).click();
   const csrfRequest = await csrfRequestPromise;
   expect(csrfRequest.headers()['x-xsrf-token']).toBeTruthy();
-  expect((await csrfRequest.allHeaders()).origin).toBe('http://localhost:5173');
+  expect((await csrfRequest.allHeaders()).origin).toBe(new URL(page.url()).origin);
   const csrfCookie = (await context.cookies()).find((cookie) => cookie.name === 'XSRF-TOKEN');
-  expect(csrfCookie).toMatchObject({ httpOnly: false, secure: false, sameSite: 'Lax' });
+  expect(csrfCookie).toMatchObject({
+    httpOnly: false,
+    secure: expectedSecureCookie,
+    sameSite: 'Lax',
+  });
 
   await page.getByRole('button', { name: '로그아웃' }).click();
   await expect(page).toHaveURL(/\/login$/u);
-  const rejectedReuseStatus = await page.evaluate(async () => {
-    const response = await fetch('http://localhost:8080/api/v1/users/me', {
+  const rejectedReuseStatus = await page.evaluate(async (apiBaseUrl) => {
+    const response = await fetch(`${apiBaseUrl}/api/v1/users/me`, {
       credentials: 'include',
     });
     return response.status;
-  });
+  }, E2E_API_BASE_URL);
   expect(rejectedReuseStatus).toBe(401);
   await page.goto('/');
   await expect(page).toHaveURL(/\/login$/u);
@@ -77,8 +88,8 @@ test('rejects a state-changing request without the X-XSRF-TOKEN header as JSON',
   const email = uniqueEmail(testInfo);
   try {
     await signupAndLogin(page, email);
-    const result = await page.evaluate(async () => {
-      const response = await fetch('http://localhost:8080/api/v1/users/me', {
+    const result = await page.evaluate(async (apiBaseUrl) => {
+      const response = await fetch(`${apiBaseUrl}/api/v1/users/me`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -89,7 +100,7 @@ test('rejects a state-changing request without the X-XSRF-TOKEN header as JSON',
         contentType: response.headers.get('content-type'),
         body: (await response.json()) as { code?: string },
       };
-    });
+    }, E2E_API_BASE_URL);
     expect(result.status).toBe(403);
     expect(result.contentType).toContain('application/json');
     expect(result.body.code).toBe('FORBIDDEN');

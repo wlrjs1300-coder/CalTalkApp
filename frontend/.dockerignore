@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+test-results
+playwright-report
+blob-report
+trace.zip
+.npm
+.env
+.env.*
+!.env.example
+.git
+.github
+.idea
+.vscode
+*.iml
+*.log

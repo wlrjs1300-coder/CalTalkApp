@@ -1,0 +1,13 @@
+.gradle
+build
+out
+logs
+*.log
+.env
+.env.*
+.git
+.github
+.idea
+.vscode
+*.iml
+HELP.md

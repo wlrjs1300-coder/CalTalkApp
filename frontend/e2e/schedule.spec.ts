@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import {
   cleanupAccount,
   createSchedule,
+  E2E_API_BASE_URL,
   openSchedule,
   signupAndLogin,
   uniqueEmail,
@@ -65,22 +66,28 @@ test('creates, reads, updates with location KEEP/SET/REMOVE, changes display tim
 
     const item = page.getByRole('button', { name: new RegExp(renamedTitle, 'u') });
     const seoulDisplay = await item.innerText();
-    const before = await page.evaluate(async (id) => {
-      const response = await fetch(`http://localhost:8080/api/v1/schedules/${id}`, {
-        credentials: 'include',
-      });
-      return (await response.json()) as { startAt: string; endAt: string };
-    }, created.id);
+    const before = await page.evaluate(
+      async ({ apiBaseUrl, id }) => {
+        const response = await fetch(`${apiBaseUrl}/api/v1/schedules/${id}`, {
+          credentials: 'include',
+        });
+        return (await response.json()) as { startAt: string; endAt: string };
+      },
+      { apiBaseUrl: E2E_API_BASE_URL, id: created.id },
+    );
     await page.getByLabel('표시 시간대').fill('Asia/Tokyo');
     await page.getByRole('button', { name: '변경' }).click();
     await expect(page.getByRole('status')).toBeVisible();
     await expect(item).not.toHaveText(seoulDisplay);
-    const after = await page.evaluate(async (id) => {
-      const response = await fetch(`http://localhost:8080/api/v1/schedules/${id}`, {
-        credentials: 'include',
-      });
-      return (await response.json()) as { startAt: string; endAt: string };
-    }, created.id);
+    const after = await page.evaluate(
+      async ({ apiBaseUrl, id }) => {
+        const response = await fetch(`${apiBaseUrl}/api/v1/schedules/${id}`, {
+          credentials: 'include',
+        });
+        return (await response.json()) as { startAt: string; endAt: string };
+      },
+      { apiBaseUrl: E2E_API_BASE_URL, id: created.id },
+    );
     expect(after).toEqual(before);
 
     await openSchedule(page, renamedTitle);

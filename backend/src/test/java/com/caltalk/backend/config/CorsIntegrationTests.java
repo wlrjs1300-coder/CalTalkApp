@@ -1,6 +1,7 @@
 package com.caltalk.backend.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -38,6 +39,10 @@ class CorsIntegrationTests {
 
     @Test
     void allowsCredentialedPreflightForExactDevelopmentOriginAndRequiredMethods() throws Exception {
+        assertThat(SecurityConfig.parseAllowedOrigins(
+                "https://app.example.com, https://admin.example.com"
+        )).containsExactly("https://app.example.com", "https://admin.example.com");
+
         for (String method : List.of("GET", "POST", "PATCH", "DELETE")) {
             mockMvc.perform(options("/api/v1/users/me")
                             .header(HttpHeaders.ORIGIN, DEVELOPMENT_ORIGIN)
@@ -60,6 +65,13 @@ class CorsIntegrationTests {
 
     @Test
     void rejectsUnlistedOriginWithoutWildcardHeaders() throws Exception {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> SecurityConfig.parseAllowedOrigins("https://*.example.com"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> SecurityConfig.parseAllowedOrigins("https://example.com/path"));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> SecurityConfig.parseAllowedOrigins(" , "));
+
         var result = mockMvc.perform(options("/api/v1/users/me")
                         .header(HttpHeaders.ORIGIN, "https://untrusted.example")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))

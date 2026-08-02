@@ -1,5 +1,7 @@
 package com.caltalk.backend.config;
 
+import java.net.URI;
+import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.context.annotation.Bean;
@@ -104,9 +106,11 @@ public class SecurityConfig {
     }
 
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${caltalk.cors.allowed-origins:http://localhost:5173}") String allowedOrigins
+    ) {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+        configuration.setAllowedOrigins(parseAllowedOrigins(allowedOrigins));
         configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Content-Type", "X-XSRF-TOKEN", "Accept"));
         configuration.setAllowCredentials(true);
@@ -114,6 +118,39 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
         return source;
+    }
+
+    static List<String> parseAllowedOrigins(String configuredOrigins) {
+        List<String> origins = Arrays.stream(configuredOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .peek(SecurityConfig::validateOrigin)
+                .distinct()
+                .toList();
+        if (origins.isEmpty()) {
+            throw new IllegalArgumentException("At least one CORS origin must be configured");
+        }
+        return origins;
+    }
+
+    private static void validateOrigin(String origin) {
+        URI uri;
+        try {
+            uri = URI.create(origin);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("CORS origin is malformed", exception);
+        }
+        boolean supportedScheme = "http".equals(uri.getScheme()) || "https".equals(uri.getScheme());
+        if (!supportedScheme
+                || uri.getHost() == null
+                || uri.getUserInfo() != null
+                || uri.getPath() == null
+                || !uri.getPath().isEmpty()
+                || uri.getQuery() != null
+                || uri.getFragment() != null
+                || origin.contains("*")) {
+            throw new IllegalArgumentException("CORS origin must be an exact HTTP(S) origin");
+        }
     }
 
     @Bean

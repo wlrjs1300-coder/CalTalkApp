@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 const frontendDirectory = fileURLToPath(new URL('.', import.meta.url));
 const backendDirectory = fileURLToPath(new URL('../backend/', import.meta.url));
+const externalBaseUrl = process.env.E2E_BASE_URL;
 const backendCommand =
   process.platform === 'win32'
     ? '.\\gradlew.bat bootRun --console=plain'
@@ -15,7 +16,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: externalBaseUrl ?? 'http://localhost:5173',
     locale: 'ko-KR',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
@@ -23,20 +24,22 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: [
-    {
-      command: backendCommand,
-      cwd: backendDirectory,
-      url: 'http://localhost:8080/api/v1/health',
-      reuseExistingServer: false,
-      timeout: 120_000,
-    },
-    {
-      command: 'npm run dev -- --host localhost --port 5173 --strictPort',
-      cwd: frontendDirectory,
-      url: 'http://localhost:5173/login',
-      reuseExistingServer: false,
-      timeout: 60_000,
-    },
-  ],
+  webServer: externalBaseUrl
+    ? undefined
+    : [
+        {
+          command: backendCommand,
+          cwd: backendDirectory,
+          url: 'http://localhost:8080/api/v1/health',
+          reuseExistingServer: false,
+          timeout: 120_000,
+        },
+        {
+          command: 'npm run dev -- --host localhost --port 5173 --strictPort',
+          cwd: frontendDirectory,
+          url: 'http://localhost:5173/login',
+          reuseExistingServer: false,
+          timeout: 60_000,
+        },
+      ],
 });
