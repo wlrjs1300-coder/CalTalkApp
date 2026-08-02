@@ -18,7 +18,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -28,8 +28,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import com.caltalk.backend.user.UserRepository;
-
-import jakarta.servlet.http.Cookie;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -54,6 +52,9 @@ class LogoutIntegrationTests {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void createUser() {
         userRepository.deleteAll();
@@ -62,18 +63,18 @@ class LogoutIntegrationTests {
 
     @Test
     void logsOutAuthenticatedUserAndDeletesConfiguredSessionCookie() throws Exception {
-        MockHttpSession session = login();
-        String sessionId = session.getId();
+        AuthenticatedSession session = login();
+        String sessionId = session.sessionId();
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/logout")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf()))
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""))
                 .andExpect(header().string(HttpHeaders.LOCATION, org.hamcrest.Matchers.nullValue()))
                 .andReturn();
 
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isZero();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
 
         String setCookie = result.getResponse().getHeader(HttpHeaders.SET_COOKIE);
@@ -86,16 +87,15 @@ class LogoutIntegrationTests {
 
     @Test
     void returnsJsonUnauthorizedForProtectedApiAfterLogout() throws Exception {
-        MockHttpSession session = login();
-        String sessionId = session.getId();
+        AuthenticatedSession session = login();
 
         mockMvc.perform(post("/api/v1/auth/logout")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf()))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/auth/private")
-                        .cookie(new Cookie("CALTALK_SESSION", sessionId)))
+                        .cookie(session.cookie()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
@@ -146,7 +146,7 @@ class LogoutIntegrationTests {
                 .doesNotContain("CALTALK_SESSION", "sessionId", "csrf", "token", "secret");
     }
 
-    private MockHttpSession login() throws Exception {
+    private AuthenticatedSession login() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -158,6 +158,6 @@ class LogoutIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        return (MockHttpSession) result.getRequest().getSession(false);
+        return AuthenticatedSession.from(result);
     }
 }

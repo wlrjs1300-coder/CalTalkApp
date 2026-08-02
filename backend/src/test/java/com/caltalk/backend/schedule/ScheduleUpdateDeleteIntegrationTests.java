@@ -20,7 +20,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
@@ -28,6 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import com.caltalk.backend.auth.AuthenticatedSession;
 import com.caltalk.backend.auth.SignupRequest;
 import com.caltalk.backend.auth.SignupService;
 import com.caltalk.backend.confirmation.ConfirmationRequestRepository;
@@ -70,10 +70,10 @@ class ScheduleUpdateDeleteIntegrationTests {
     @Test
     void partiallyUpdatesAndStoresCompleteUpdateSnapshot() throws Exception {
         Schedule schedule = schedule("Original", "Room A");
-        MockHttpSession session = login();
+        AuthenticatedSession session = login();
 
         mockMvc.perform(patch("/api/v1/schedules/{id}", schedule.getId())
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -105,7 +105,7 @@ class ScheduleUpdateDeleteIntegrationTests {
 
         mockMvc.perform(delete("/api/v1/schedules/{id}", schedule.getId())
                         .param("version", "0")
-                        .session(login())
+                        .cookie(login().cookie())
                         .with(csrf()))
                 .andExpect(status().isNoContent())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"));
@@ -133,7 +133,7 @@ class ScheduleUpdateDeleteIntegrationTests {
         ));
     }
 
-    private MockHttpSession login() throws Exception {
+    private AuthenticatedSession login() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -141,6 +141,6 @@ class ScheduleUpdateDeleteIntegrationTests {
                                 """.formatted(EMAIL, PASSWORD)))
                 .andExpect(status().isOk())
                 .andReturn();
-        return (MockHttpSession) result.getRequest().getSession(false);
+        return AuthenticatedSession.from(result);
     }
 }

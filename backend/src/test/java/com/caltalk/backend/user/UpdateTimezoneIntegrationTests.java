@@ -25,7 +25,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -34,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import com.caltalk.backend.auth.AuthenticatedSession;
 import com.caltalk.backend.auth.SignupRequest;
 import com.caltalk.backend.auth.SignupService;
 
@@ -60,6 +61,9 @@ class UpdateTimezoneIntegrationTests {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void createUser() {
         userRepository.deleteAll();
@@ -71,7 +75,7 @@ class UpdateTimezoneIntegrationTests {
         User before = findUser();
         String passwordHash = before.getPasswordHash();
         Instant createdAt = before.getCreatedAt();
-        MockHttpSession session = login();
+        AuthenticatedSession session = login();
 
         performPatch(session, "  Asia/Tokyo  ")
                 .andExpect(status().isOk())
@@ -96,7 +100,7 @@ class UpdateTimezoneIntegrationTests {
         assertThat(after.getCreatedAt()).isEqualTo(createdAt);
         assertThat(after.getTimezone()).isEqualTo("Asia/Tokyo");
 
-        mockMvc.perform(get("/api/v1/users/me").session(session))
+        mockMvc.perform(get("/api/v1/users/me").cookie(session.cookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Asia/Tokyo"));
     }
@@ -152,11 +156,11 @@ class UpdateTimezoneIntegrationTests {
 
     @Test
     void rejectsMissingAndInvalidCsrfTokens() throws Exception {
-        MockHttpSession session = login();
+        AuthenticatedSession session = login();
         String body = "{\"timezone\":\"Asia/Tokyo\"}";
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .session(session)
+                        .cookie(session.cookie())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isForbidden())
@@ -165,7 +169,7 @@ class UpdateTimezoneIntegrationTests {
                 .andExpect(redirectedUrl(null));
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf().useInvalidToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -177,7 +181,7 @@ class UpdateTimezoneIntegrationTests {
 
     @Test
     void invalidatesSessionWhenAuthenticatedUserNoLongerExists() throws Exception {
-        MockHttpSession session = login();
+        AuthenticatedSession session = login();
         userRepository.deleteAll();
 
         MvcResult result = performPatch(session, "Asia/Tokyo")
@@ -185,7 +189,7 @@ class UpdateTimezoneIntegrationTests {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andReturn();
 
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isZero();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE))
                 .isNotNull()
@@ -197,17 +201,17 @@ class UpdateTimezoneIntegrationTests {
     }
 
     private org.springframework.test.web.servlet.ResultActions performPatch(
-            MockHttpSession session,
+            AuthenticatedSession session,
             String timezone
     ) throws Exception {
         return mockMvc.perform(patch("/api/v1/users/me")
-                .session(session)
+                .cookie(session.cookie())
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"timezone\":\"%s\"}".formatted(timezone)));
     }
 
-    private MockHttpSession login() throws Exception {
+    private AuthenticatedSession login() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -219,7 +223,7 @@ class UpdateTimezoneIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        return (MockHttpSession) result.getRequest().getSession(false);
+        return AuthenticatedSession.from(result);
     }
 
     private User findUser() {
