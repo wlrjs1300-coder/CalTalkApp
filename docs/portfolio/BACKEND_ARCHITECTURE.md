@@ -1,8 +1,10 @@
 # 백엔드 아키텍처
 
+> 현재 React SPA가 이 API의 실제 consumer이며, Playwright가 PostgreSQL·Spring Boot·Vite·Chromium 전체 연결을 검증한다. Frontend 구조와 E2E 범위는 [Frontend와 Browser E2E](FRONTEND_AND_E2E.md)에 정리한다.
+
 ## 목표와 현재 범위
 
-CalTalk 백엔드는 대화형 일정 관리 서비스의 서버 기반을 제공한다. 현재 범위는 인증, 사용자 시간대, 일정 CRUD, 충돌 confirmation과 변경 이력이다. 자연어 해석, 카카오 연결, React 화면은 이 경계 밖에 있다.
+CalTalk 백엔드는 웹 일정 관리 서비스의 서버 기반을 제공한다. 현재 범위는 인증, 사용자 시간대, 일정 CRUD, 충돌 confirmation과 변경 이력이며 React 화면이 실제 API consumer로 연결되어 있다. 자연어 해석과 카카오 연결은 이 경계 밖에 있다.
 
 ## 계층 구조
 
@@ -100,4 +102,4 @@ erDiagram
 
 ## 현재 경계
 
-현재 코드에는 자연어 parser, LLM adapter, pending command, idempotency record, 카카오 사용자 연결, notification, frontend가 없다. Redis starter와 로컬 컨테이너는 준비되어 있지만 현재 세션과 도메인 상태는 PostgreSQL에 저장한다.
+현재 코드에는 자연어 parser, LLM adapter, pending command, idempotency record, 카카오 사용자 연결과 notification이 없다. React frontend는 구현되어 있으며 Redis starter와 로컬 컨테이너는 향후 확장을 위해 준비되어 있다. 현재 세션과 도메인 상태는 PostgreSQL에 저장한다.

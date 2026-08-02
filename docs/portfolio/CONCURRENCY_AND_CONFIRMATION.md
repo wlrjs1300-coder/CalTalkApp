@@ -1,5 +1,9 @@
 # 동시성 및 confirmation
 
+> React frontend는 `409 SCHEDULE_CONFLICT`를 dialog로 표시하고 승인 API를 호출한다. `CONFIRMATION_SUPERSEDED` 응답의 최신 `confirmationId`와 충돌 목록으로 dialog를 교체하며 자동 교체는 최대 3회로 제한한다.
+
+Playwright E2E는 CREATE_EVENT와 UPDATE_EVENT의 실제 사용자 승인 흐름을 검증한다. 최초 생성 경쟁, stale snapshot, replacement PENDING 단일 유지와 최신 ID 수렴처럼 결정적인 경쟁 조건은 실제 PostgreSQL을 사용하는 backend 동시성 테스트가 담당한다.
+
 ## 충돌을 바로 덮어쓰지 않는 이유
 
 일정 시간이 겹쳤다는 이유만으로 기존 일정을 수정하거나 새 일정을 무조건 거부하면 사용자의 의도를 보존하기 어렵다. CalTalk는 충돌 후보를 별도 confirmation으로 저장하고 사용자가 충돌을 확인한 뒤 승인하도록 한다. 승인 시점에는 DB 상태가 달라질 수 있으므로 후보의 유효성을 다시 검사한다.
