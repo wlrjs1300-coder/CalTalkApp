@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -54,4 +55,8 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
     );
 
     Optional<Schedule> findByIdAndOwner(Long id, User owner);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from Schedule schedule where schedule.owner = :owner")
+    void deleteAllByOwner(@Param("owner") User owner);
 }

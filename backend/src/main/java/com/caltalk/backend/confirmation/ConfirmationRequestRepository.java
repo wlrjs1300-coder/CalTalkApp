@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -32,4 +33,16 @@ public interface ConfirmationRequestRepository
     );
 
     List<ConfirmationRequest> findByTargetScheduleId(Long targetScheduleId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update ConfirmationRequest confirmation
+            set confirmation.supersededBy = null
+            where confirmation.user = :user
+            """)
+    void clearSupersededReferencesByUser(@Param("user") User user);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from ConfirmationRequest confirmation where confirmation.user = :user")
+    void deleteAllByUser(@Param("user") User user);
 }

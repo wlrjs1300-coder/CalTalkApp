@@ -85,4 +85,8 @@ public class CurrentUserService {
                 user.getCreatedAt()
         );
     }
+
+    public void logout(HttpServletRequest request, HttpServletResponse response) {
+        logoutService.logout(request, response);
+    }
 }
