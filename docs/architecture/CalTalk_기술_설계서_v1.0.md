@@ -59,7 +59,7 @@ PWA 직접 등록·수정과 자연어 등록·수정은 하나의 확인(confir
 API 호출 계층	공통 fetch 래퍼	쿠키 세션 인증에는 axios 이점이 적음	axios	기술 설계 확정안
 PWA 구성	vite-plugin-pwa(Workbox 기반)	앱 셸 캐싱·설치 가능 상태 제공	수동 서비스워커	기술 설계 확정안
 서비스워커 캐시 범위	정적 앱 셸만 캐시, /api/**·인증 응답은 NetworkOnly	오프라인 동기화 제외 원칙, 세션 간 데이터 오염 방지	stale-while-revalidate	확정
-인증 상태 처리	서버 세션 쿠키, 로그인 여부는 GET /api/v1/users/me 캐시로 판단	7절과 일치	로컬스토리지 JWT	기술 설계 확정안
+인증 상태 처리	서버 세션 쿠키, 로그인 여부는 GET /api/v1/users/me 응답으로 판단하고 클라이언트 메모리에만 반영	7절과 일치	로컬스토리지 JWT	기술 설계 확정안
 캘린더 UI	월간 그리드 + 날짜 선택 + 선택 날짜 목록 + 이전/다음 달 + 오늘 이동만(일간 그리드 없음)	요구 범위 초과 방지	FullCalendar	기술 설계 확정안
 2.6 백엔드 아키텍처
 
@@ -83,29 +83,45 @@ common 제한 원칙: (1) 두 개 이상 모듈에서 실제 재사용이 확인
 
 2.7.2 인증 방식과 세션 저장소
 이메일 기반 회원가입/로그인 + 서버 세션, 세션 저장소는 Spring Session JDBC로 PostgreSQL에 저장(확정 유지). 인프라 테이블 관리는 2.7.10 참조.
+회원가입은 POST /api/v1/auth/signup에 email, password, passwordConfirmation만 전달한다. 이름·닉네임·표시 이름·시간대는 가입 요청에서 받지 않는다. 가입 성공 시 사용자만 생성하고 자동 로그인이나 세션 생성을 하지 않는다.
+로그인은 POST /api/v1/auth/login에 email과 password만 전달한다. 이메일은 필수이며 앞뒤 공백 제거와 소문자 정규화 후 형식과 최대 254자를 검증한다. 비밀번호는 필수이며 8자 이상 64자 이하로 검증한다. 인증 성공 시 Spring Security 서버 세션을 생성하고 기존 세션이 있으면 세션 고정 공격 방지를 위해 세션 ID를 교체한다. 이미 로그인한 사용자도 제출한 새 인증 정보로 다시 인증하며 성공은 HTTP 200으로 처리하고 중복 로그인 오류를 반환하지 않는다.
+로그아웃은 POST /api/v1/auth/logout을 사용한다. 인증된 사용자용 API이지만 유효한 CSRF 토큰을 제시한 미인증 요청도 멱등적으로 처리하여 인증 여부와 관계없이 HTTP 204 No Content를 반환하고 로그인 상태를 노출하지 않는다. 현재 세션만 종료하며 다른 사용자나 다른 세션에는 영향을 주지 않는다.
+현재 사용자 조회는 GET /api/v1/users/me를 사용한다. CALTALK_SESSION으로 인증된 Spring Security Authentication의 principal에서 정규화 이메일을 얻고 users를 다시 조회하며, 클라이언트가 ID·이메일을 요청 파라미터나 본문으로 지정할 수 없다. 성공 응답은 email·timezone·createdAt만 포함하고 브라우저 새로고침과 앱 초기 진입의 인증 상태 복원 기준으로 사용한다.
+현재 사용자 시간대 변경은 PATCH /api/v1/users/me를 사용한다. 공개 경로가 아닌 세션 인증·CSRF 보호 대상이며 요청 본문에는 timezone 하나만 받는다. 인증 principal로 현재 사용자를 다시 조회한 뒤 users.timezone만 변경하고 GET /api/v1/users/me와 동일한 응답 구조를 반환한다.
+회원 탈퇴는 DELETE /api/v1/users/me를 사용한다. 공개 경로가 아닌 세션 인증·CSRF 보호 대상이며 currentPassword로 현재 비밀번호를 재검증한 뒤 2.7.9의 현재 V1~V3 삭제 범위를 처리한다.
 
 2.7.3 세션 만료와 로그인 유지 정책
-비활동 기준 세션 유효시간 12시간, 별도 "로그인 유지" 기능 없음(확정).
+비활동 기준 세션 유효시간은 12시간이며 요청이 발생하면 만료 시각이 갱신되는 기본 유휴 시간 방식을 사용한다. 별도 자동 로그인·로그인 유지 기능과 로그인 상태 유지 체크박스는 제공하지 않고, 동시 로그인 제한도 이번 MVP에서 적용하지 않는다(확정).
 
 2.7.4 세션 쿠키 속성
-HttpOnly, Secure, SameSite=Lax, Path=/(확정). 개발 환경에서 Secure 쿠키 동작은 구현 초기 검증 필요.
+세션 쿠키 이름은 CALTALK_SESSION이다. HttpOnly=true, SameSite=Lax, Path=/를 사용하고 Domain과 Max-Age는 지정하지 않는 세션 쿠키로 설정한다. Secure는 환경별 설정으로 관리하여 로컬 HTTP 개발환경에서는 false, 운영 HTTPS 환경에서는 true로 강제하며 운영에서 false를 허용하지 않는다(확정).
+로그아웃 응답에서는 CALTALK_SESSION을 빈 값, Path=/, Max-Age=0, HttpOnly=true, SameSite=Lax로 설정해 삭제한다. Domain은 지정하지 않고 Secure는 현재 환경 설정과 동일하게 적용한다.
 
 2.7.5 비밀번호 해시
-BCrypt(기술 설계 확정안).
+비밀번호는 필수이며 8자 이상 64자 이하로 제한한다. 문자·숫자·특수문자 조합은 강제하지 않지만 공백만으로 구성된 값은 허용하지 않는다. passwordConfirmation은 password와 정확히 일치해야 하며 저장하지 않는다. 저장 시 Spring Security의 기본 강도를 사용하는 BCrypt로 해시하고 password_hash에 해시만 저장한다(기술 설계 확정안).
 
 2.7.6 CSRF 처리(SPA 기준)
-쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더. 로그인/로그아웃 후 세션 교체와 함께 CSRF 쿠키도 갱신되므로 프런트엔드는 매번 최신 값을 다시 읽는다. 세부 설정은 구현 직전 재확인.
+쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더를 사용한다. 회원가입과 로그인의 기존 CSRF 예외 계약은 유지하되 POST 로그아웃과 PATCH·DELETE /api/v1/users/me는 상태 변경 요청이므로 CSRF 보호 대상이며 예외에 추가하지 않는다. 토큰 누락 또는 불일치는 HTML 리다이렉트 없이 HTTP 403 + FORBIDDEN 공통 오류 JSON으로 응답한다. 로그인 성공 후 세션 교체 시 CSRF 쿠키를 갱신하므로 프런트엔드는 최신 값을 다시 읽는다.
 
 2.7.7 CORS
 운영: 불필요(동일 출처). 개발: http://localhost:5173만 허용.
+
+2.7.7.1 Spring Security 웹 오류 정책
+POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. POST /api/v1/auth/logout은 인증된 사용자용 경로이되 유효한 CSRF 토큰이 있는 미인증 요청을 멱등 성공으로 처리한다. GET·PATCH·DELETE /api/v1/users/me는 공개 경로에 추가하지 않고 세션 인증을 요구하며 PATCH와 DELETE에는 CSRF 토큰도 요구한다. 인증되지 않은 보호 API 요청과 로그아웃 뒤 기존 세션 쿠키로 보낸 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족과 CSRF 실패는 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
 
 2.7.8 사용자 소유권 검증
 모든 일정 조회·수정·삭제 쿼리에 인증 사용자 ID를 강제하고 Application 계층에서 소유자를 재비교한다(확정).
 
 2.7.9 회원 탈퇴와 데이터 삭제
-탈퇴 요청 시 하나의 트랜잭션 안에서 다음을 즉시 하드 삭제한다: 계정(users), 본인 소유 일정(schedules), 관련 변경 이력(schedule_change_history, ON DELETE CASCADE로 자연히 함께 제거됨), 카카오 연결(kakao_user_links), 진행 중 연결 코드(connection_codes), 대기 명령(pending_commands), 확인 요청(confirmation_requests), 해당 사용자 범위의 멱등성 기록(idempotency_records), 로그인 보안 상태(login_security_state, 19절).
+확정 API는 `DELETE /api/v1/users/me`다. 세션으로 인증된 현재 사용자만 호출할 수 있고 CSRF 보호 대상이며, 사용자 ID나 이메일을 요청에서 받지 않는다. 요청 JSON은 `{ "currentPassword": "현재 비밀번호" }`만 허용한다. currentPassword는 필수 문자열이고 공백 전용과 64자 초과를 거부한다. 인증 principal의 정규화 이메일로 사용자를 다시 조회하고 `PasswordEncoder.matches(currentPassword, password_hash)`로 현재 비밀번호를 검증한다. 원문·해시·요청 본문을 로그나 오류 응답에 노출하지 않는다. 누락·공백 전용·형식·길이 오류는 HTTP 422 + VALIDATION_ERROR와 currentPassword fieldError, 불일치는 계정 존재 여부나 내부 상태 차이를 드러내지 않는 HTTP 401 + INVALID_CREDENTIALS와 빈 fieldErrors로 응답한다.
 
-users에는 deleted_at을 두지 않는다(즉시·전면 하드 삭제). 일반 일정 삭제 정책은 11절 참조. 관리형 DB 백업 보관 기간은 호스팅 제공업체 선택 후 개인정보 안내에 반영(보류).
+현재 V1~V3에서 실제 존재하는 사용자 관련 도메인 테이블만 DB 삭제 트랜잭션의 대상으로 확정한다. 순서는 (1) 현재 사용자 조회와 비밀번호 검증, (2) 해당 사용자의 confirmation_requests 전체 삭제 — PENDING·CONSUMED·SUPERSEDED·EXPIRED·CANCELLED를 구분하지 않고 self reference와 target_schedule_id 참조를 먼저 정리, (3) 해당 사용자의 schedules 전체 하드 삭제, (4) schedule_change_history가 `schedule_id ON DELETE CASCADE`로 함께 삭제됐는지 확인, (5) users 삭제, (6) 커밋이다. 다른 사용자의 일정·이력·confirmation은 삭제하지 않는다. 별도 DELETE 이력·감사 로그·soft delete를 추가하지 않으며 users에는 deleted_at을 두지 않는다.
+
+pending_commands, idempotency_records, connection_codes, kakao_user_links, login_security_state는 현재 V1~V3에 존재하지 않으므로 현 구현의 삭제 대상으로 표현하지 않는다. 이 테이블들이 후속 migration으로 추가되면 해당 사용자 소유 행을 회원 탈퇴 DB 트랜잭션에 포함해야 한다는 후속 계약만 유지한다. 외부 카카오 API 호출이나 별도 네트워크 연결 해제는 현재 탈퇴 성공 조건에 포함하지 않는다.
+
+DB 삭제와 HTTP 세션 정리는 하나의 원자적 트랜잭션이 아니다. DB 트랜잭션이 성공적으로 커밋된 뒤 현재 HTTP 세션을 무효화하고 SecurityContext를 제거하며, 응답에서 CALTALK_SESSION을 빈 값·Path=/·Max-Age=0·HttpOnly·SameSite=Lax·환경별 Secure·Domain 미지정으로 삭제한다. 현재 Spring Session 구조에는 사용자별 모든 세션을 안전하게 찾는 별도 인덱스 계약이 없으므로 MVP는 현재 요청 세션만 종료하며, 근거 없이 모든 기기·브라우저 세션 종료를 보장하지 않는다. 다른 세션이 남아 있어도 users 재조회 실패 시 기존 무효 사용자 세션 처리 경로로 세션·SecurityContext·쿠키를 정리하고 401을 반환한다. DB 삭제가 실패하면 커밋하지 않고 세션을 유지한 채 일반화된 HTTP 500 + INTERNAL_SERVER_ERROR를 반환한다. 성공은 HTTP 204 No Content, 빈 본문, `Cache-Control: no-store`이며 사용자 정보나 삭제 건수를 반환하지 않는다. 성공 뒤 같은 세션 쿠키로 보호 API를 호출하면 401 UNAUTHORIZED이고 탈퇴 요청 재시도 역시 204가 아닌 401이다.
+
+관리형 DB 백업 보관 기간은 호스팅 제공업체 선택 후 개인정보 안내에 반영(보류). 일반 일정 삭제 정책은 11절 참조.
 
 상태: 기술 설계 확정안(백업 보관 기간만 보류)
 
@@ -118,28 +134,38 @@ users에는 deleted_at을 두지 않는다(즉시·전면 하드 삭제). 일반
 2.8.1 confirmation_requests 스키마와 candidate_fingerprint 계산 규칙
 
 confirmation_requests
- - id (PK)                              -- API에는 confirmationId로 노출
- - user_id (FK -> users.id, NOT NULL)
- - origin_channel (PWA | WEB_CHAT | KAKAO)
- - command_type (CREATE_EVENT | UPDATE_EVENT)
- - target_schedule_id (nullable, UPDATE_EVENT만 사용)
- - target_schedule_version (nullable)   -- 후보 생성(또는 재계산) 시점 schedules.version 스냅샷
- - title (nullable)                     -- CREATE_EVENT는 항상 값 있음, UPDATE_EVENT는 "변경 없음"이면 NULL
- - start_at (nullable)                  -- 위와 동일한 의미
- - end_at (nullable)
- - location_action (KEEP | REMOVE | SET)
- - location_value (nullable)
- - candidate_fingerprint (not null)     -- 아래 계산 규칙 참조
- - conflict_snapshot_hash (not null)    -- 계산 시점의 충돌 일정 목록(id+version) 해시, 충돌 없으면 빈 목록의 해시
- - conflict_acknowledged (boolean, not null, default false)
- - status (PENDING | CONSUMED | SUPERSEDED | EXPIRED | CANCELLED, not null, default 'PENDING')
- - superseded_by_confirmation_id (nullable, FK -> confirmation_requests.id)
+ - id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY   -- API에는 숫자 confirmationId로 노출
+ - user_id BIGINT NOT NULL                                  -- FK -> users.id, 삭제 정책 NO ACTION
+ - origin_channel VARCHAR(20) NOT NULL                      -- PWA | WEB_CHAT | KAKAO
+ - command_type VARCHAR(30) NOT NULL                        -- CREATE_EVENT | UPDATE_EVENT
+ - target_schedule_id BIGINT NULL                           -- FK -> schedules.id, UPDATE_EVENT만 사용, 삭제 정책 NO ACTION
+ - target_schedule_version BIGINT NULL                      -- 후보 생성(또는 재계산) 시점 schedules.version 스냅샷
+ - title VARCHAR(200) NULL                                  -- CREATE_EVENT는 항상 값 있음, UPDATE_EVENT는 "변경 없음"이면 NULL
+ - start_at TIMESTAMP WITH TIME ZONE NULL                   -- 위와 동일한 의미
+ - end_at TIMESTAMP WITH TIME ZONE NULL
+ - location_action VARCHAR(10) NOT NULL                     -- KEEP | REMOVE | SET
+ - location_value VARCHAR(200) NULL
+ - candidate_fingerprint CHAR(64) NOT NULL                  -- 아래 계산 규칙의 SHA-256 16진수
+ - conflict_snapshot_hash CHAR(64) NOT NULL                 -- 계산 시점의 충돌 일정 목록(id+version) SHA-256, 충돌 없으면 빈 목록의 해시
+ - conflict_acknowledged BOOLEAN NOT NULL DEFAULT FALSE
+ - status VARCHAR(20) NOT NULL DEFAULT 'PENDING'            -- PENDING | CONSUMED | SUPERSEDED | EXPIRED | CANCELLED
+ - superseded_by_confirmation_id BIGINT NULL                -- FK -> confirmation_requests.id, 삭제 정책 NO ACTION
    -- SUPERSEDED로 바뀔 때 이를 대체한 새 confirmation을 가리켜 감사 추적을 가능하게 함
- - created_at (not null)
- - expires_at (not null)                -- created_at + 5분
- - consumed_at (nullable)
+ - created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+ - expires_at TIMESTAMP WITH TIME ZONE NOT NULL             -- 애플리케이션이 created_at 기준 5분으로 설정
+ - consumed_at TIMESTAMP WITH TIME ZONE NULL
 
+ CHECK (origin_channel IN ('PWA', 'WEB_CHAT', 'KAKAO'))
+ CHECK (command_type IN ('CREATE_EVENT', 'UPDATE_EVENT'))
+ CHECK (location_action IN ('KEEP', 'REMOVE', 'SET'))
+ CHECK (status IN ('PENDING', 'CONSUMED', 'SUPERSEDED', 'EXPIRED', 'CANCELLED'))
  UNIQUE(user_id, candidate_fingerprint) WHERE status = 'PENDING'
+
+ INDEX idx_confirmation_user_status ON confirmation_requests (user_id, status)
+ INDEX idx_confirmation_expires ON confirmation_requests (expires_at)
+ INDEX idx_confirmation_target_schedule ON confirmation_requests (target_schedule_id)
+
+기존 컬럼만 물리화하며 별도 candidate_payload·cancelled_at 컬럼을 추가하지 않는다. 사용자 입력 전체 원문, 세션 ID, 쿠키, 비밀번호를 저장하지 않고 candidate_fingerprint와 conflict_snapshot_hash 전체값을 로그에 남기지 않는다. 만료된 PENDING 행은 승인·조회 시 EXPIRED로 전환한다. 별도 정리 스케줄러는 이번 MVP에 추가하지 않고 만료 행 정리는 후속 운영 작업으로 둔다.
 candidate_fingerprint 계산 규칙
 
 candidate_fingerprint는 단순히 "무엇이 바뀌었는가"만이 아니라, 다음 7개 값을 정규화한 canonical JSON을 기준으로 SHA-256 해시를 계산한 값이다.
@@ -257,7 +283,7 @@ candidate_fingerprint = 위 canonical JSON 문자열을 UTF-8로 인코딩한 �
 재승인 무한 반복 방지: 7단계는 "충돌 목록은 그대로인데 사용자 동의만 아직 실려 오지 않은" 경우에만 발생하며, 같은 confirmationId로 conflictAcknowledged: true를 한 번 더 보내면 즉시 종결된다. 충돌 목록 자체가 바뀌는 경우는 6단계에서 새 후보로 자동 전환되므로 같은 조건으로 반복되지 않는다.
 2.8.4 PWA 직접 등록·수정의 충돌 승인(통합 확인 모델)
 
-1. POST /api/v1/schedules 또는 PATCH /api/v1/schedules/{id}  (최초 요청, 승인 플래그 없음)
+1. POST /api/v1/schedules 또는 PATCH /api/v1/schedules/{scheduleId}  (최초 요청, 승인 플래그 없음)
 2. 서버가 입력 검증 + 충돌 계산
    - 충돌 없음 → 즉시 커밋
    - 충돌 있음 → DB 미변경, 2.8.2 절차로 confirmation_requests 생성(origin_channel=PWA),
@@ -289,25 +315,29 @@ created_at / expires_at	생성 시각 / created_at + 24시간
 
 users
  - id (PK)
- - email (not null, unique)         -- trim + lower 정규화
+ - email (not null, unique)         -- trim + lower 정규화, 최대 254자
  - password_hash (not null)
  - timezone (not null, default 'Asia/Seoul')   -- IANA ZoneId, 계정 설정에서 변경 가능
- - created_at
+ - created_at                       -- UTC 기준
+
+회원가입 단계의 users 컬럼은 위 다섯 개뿐이다. name, display_name, nickname, updated_at은 두지 않는다. 이메일 고유 제약조건은 앞뒤 공백 제거와 소문자 변환을 마친 정규화 값에 적용한다. 가입 요청에서 시간대를 받지 않고 기본값 Asia/Seoul을 저장하며 이후 계정 설정에서 변경한다.
 2.9.2 schedules
 
 schedules
- - id (PK)
- - owner_user_id (FK -> users.id, not null)
- - title (varchar(200), not null)
- - location (varchar(200), nullable)
- - start_at (timestamptz, not null)
- - end_at (timestamptz, not null)
- - version (integer, not null, default 0)      -- JPA @Version
- - created_at, updated_at
+ - id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY
+ - owner_user_id BIGINT NOT NULL               -- FK -> users.id, 삭제 정책 NO ACTION
+ - title VARCHAR(200) NOT NULL
+ - location VARCHAR(200) NULL
+ - start_at TIMESTAMP WITH TIME ZONE NOT NULL
+ - end_at TIMESTAMP WITH TIME ZONE NOT NULL
+ - version BIGINT NOT NULL DEFAULT 0            -- JPA @Version
+ - created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+ - updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 
  CHECK (end_at > start_at)
 
  INDEX idx_schedules_owner_start ON schedules (owner_user_id, start_at)
+owner_user_id는 users.id 외래 키이며 PostgreSQL 기본 NO ACTION을 사용한다. 계정 탈퇴 시 2.7.9의 단일 트랜잭션에서 사용자 소유 일정을 먼저 하드 삭제하므로 ON DELETE CASCADE를 추가하지 않는다.
 충돌 조건(자기 제외):
 
 
@@ -321,19 +351,27 @@ WHERE existing.owner_user_id = :ownerId
 2.9.3 schedule_change_history
 
 schedule_change_history
- - id (PK)
- - schedule_id (FK -> schedules.id, ON DELETE CASCADE)
- - changed_by_user_id (FK -> users.id)
- - source_channel (PWA | WEB_CHAT | KAKAO)
- - change_type (CREATE | UPDATE | DELETE)
- - changed_at
- - title_before, title_after
- - start_at_before, start_at_after
- - end_at_before, end_at_after
- - location_before, location_after
+ - id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY
+ - schedule_id BIGINT NOT NULL                 -- FK -> schedules.id, ON DELETE CASCADE
+ - changed_by_user_id BIGINT NOT NULL          -- FK -> users.id, 삭제 정책 NO ACTION
+ - source_channel VARCHAR(20) NOT NULL         -- PWA | WEB_CHAT | KAKAO
+ - change_type VARCHAR(20) NOT NULL            -- CREATE | UPDATE | DELETE
+ - changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+ - title_before VARCHAR(200) NULL
+ - title_after VARCHAR(200) NULL
+ - start_at_before TIMESTAMP WITH TIME ZONE NULL
+ - start_at_after TIMESTAMP WITH TIME ZONE NULL
+ - end_at_before TIMESTAMP WITH TIME ZONE NULL
+ - end_at_after TIMESTAMP WITH TIME ZONE NULL
+ - location_before VARCHAR(200) NULL
+ - location_after VARCHAR(200) NULL
 
+ CHECK (source_channel IN ('PWA', 'WEB_CHAT', 'KAKAO'))
+ CHECK (change_type IN ('CREATE', 'UPDATE', 'DELETE'))
  INDEX idx_history_schedule ON schedule_change_history (schedule_id, changed_at)
+ INDEX idx_history_changed_by ON schedule_change_history (changed_by_user_id, changed_at)
 일정이 하드 삭제되면 이력도 함께 삭제된다(ON DELETE CASCADE). 삭제된 일정을 조회하는 기능이 MVP에 없으므로, 근거 없는 장기 보관을 피하기 위해 별도의 삭제 감사 로그는 두지 않는다.
+CREATE 이력은 before 컬럼을 NULL로 두고 생성된 일정 값을 after 컬럼에 기록한다. UPDATE는 before·after를 모두 기록한다. 일정 삭제 시 새 DELETE 이력은 생성하지 않고 기존 CREATE·UPDATE 이력만 같은 트랜잭션의 schedules 하드 삭제와 함께 CASCADE 삭제한다. 물리 CHECK에 남아 있는 change_type DELETE는 현재 MVP에서 사용하지 않는다.
 
 2.9.4 kakao_user_links
 
@@ -389,7 +427,7 @@ login_security_state
 로그인 시도마다 last_failed_at이 현재 시각으로부터 15분보다 오래됐으면 failed_login_count를 0으로 리셋한 뒤 처리해, 별도 배치 없이 "15분 롤링 윈도" 효과를 낸다.
 실패 시 failed_login_count를 증가시키고 last_failed_at을 갱신, 5회에 도달하면 locked_until = now() + 15분을 설정한다.
 성공 시 failed_login_count = 0, locked_until = NULL로 초기화한다.
-회원 탈퇴 시 다른 사용자 데이터와 함께 하드 삭제한다(2.7.9).
+login_security_state가 후속 migration으로 추가되면 회원 탈퇴 DB 트랜잭션에서 해당 사용자 행을 하드 삭제한다(2.7.9). 현재 V1~V3의 실제 삭제 대상에는 포함되지 않는다.
 2.9.10 Spring Session JDBC 인프라 테이블
 SPRING_SESSION, SPRING_SESSION_ATTRIBUTES — 도메인 테이블과 구분되는 인프라 테이블(2.7.10).
 
@@ -414,7 +452,7 @@ DST	Asia/Seoul은 서머타임 미적용(IANA tz database). 시간 계산은 항
 조회: 소유자 필터 강제
 부분 수정(지속시간 유지): 시작 시각만 바뀌면 기존 지속시간을 유지해 종료 시각 재계산
 삭제: PWA에서 삭제하면 즉시 하드 삭제, status 컬럼 없음, 종속 이력은 ON DELETE CASCADE로 함께 삭제, 삭제된 일정은 조회·충돌·복구 대상으로 남지 않음, 휴지통·복구 기능 없음
-회원 탈퇴 시 트랜잭션 내 전 영역 하드 삭제(2.7.9)
+회원 탈퇴 시 현재 V1~V3 범위와 후속 테이블 범위를 구분해 2.7.9의 순서로 하드 삭제
 충돌 판정과 최종 재검증은 2.8의 절차를 따른다
 상태: 확정
 
@@ -504,8 +542,8 @@ PoC에서 기연결 카카오 사용자가 동일 계정의 새 유효 코드를
 2.18 API 설계 원칙과 오류 모델
 2.18.1 리소스와 엔드포인트
 리소스	엔드포인트
-인증	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout
-일정	GET /api/v1/schedules, POST /api/v1/schedules, PATCH /api/v1/schedules/{id}, DELETE /api/v1/schedules/{id}
+인증·현재 사용자	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout, GET /api/v1/users/me, PATCH /api/v1/users/me, DELETE /api/v1/users/me
+일정	GET /api/v1/schedules, GET /api/v1/schedules/{scheduleId}, POST /api/v1/schedules, PATCH /api/v1/schedules/{scheduleId}, DELETE /api/v1/schedules/{scheduleId}
 웹 자연어 대화	POST /api/v1/chat/messages
 확인(자연어+PWA 충돌 공통)	POST /api/v1/confirmations/{confirmationId}/approve, POST /api/v1/confirmations/{confirmationId}/cancel
 카카오 연결 코드	POST /api/v1/kakao/link-codes, POST /api/v1/kakao/links/revoke
@@ -523,9 +561,318 @@ confirmationId 없음/만료/이미 처리됨	404	CONFIRMATION_NOT_FOUND	—
 대상 버전 또는 충돌 목록 변경(자동 재구성됨)	409	CONFIRMATION_SUPERSEDED	새 confirmationId + 최신 제안 내용 + 최신 충돌 목록
 충돌 있고 미승인	409	CONFLICT_ACKNOWLEDGEMENT_REQUIRED	현재 충돌 목록(변경 없음)
 최초 저장 요청에서 충돌 발견 시: 409 SCHEDULE_CONFLICT + confirmationId + 충돌 목록(2.8.4).
+상태별 오류는 기존 계약을 유지한다. PENDING이 아니거나 만료·소비·취소된 confirmation은 404 CONFIRMATION_NOT_FOUND, 최신 일정 버전 또는 충돌 목록 변화로 대체되면 409 CONFIRMATION_SUPERSEDED, 충돌 목록이 같지만 명시적 동의가 없으면 409 CONFLICT_ACKNOWLEDGEMENT_REQUIRED를 사용한다. 소유권 불일치는 403 FORBIDDEN이다. `STALE_CONFIRMATION`은 기존 오류 사전에 정의되어 있지 않으므로 이번 작업에서 새로 추가하지 않으며, 별도 코드가 필요한지는 구현 전 후속 결정으로 보류한다.
 
 2.18.4 422의 범위
 클라이언트가 보낸 요청 DTO 자체의 형식 오류에만 사용한다(기존 결정 유지).
+
+2.18.5 회원가입 요청·응답과 오류 계약
+요청은 POST /api/v1/auth/signup과 다음 JSON을 사용한다.
+
+```json
+{
+  "email": "user@example.com",
+  "password": "example-password",
+  "passwordConfirmation": "example-password"
+}
+```
+
+email은 필수이며 앞뒤 공백 제거와 소문자 변환 후 올바른 이메일 형식과 최대 254자를 검증한다. password는 2.7.5의 정책을 따르고 passwordConfirmation은 password와 정확히 일치해야 한다.
+
+성공 시 HTTP 201 Created와 다음 JSON을 반환한다. Location 헤더는 요구하지 않으며 자동 로그인과 세션 생성은 하지 않는다.
+
+```json
+{
+  "email": "user@example.com",
+  "timezone": "Asia/Seoul",
+  "createdAt": "2026-07-30T00:00:00Z"
+}
+```
+
+회원가입 오류는 입력 검증 HTTP 422 + VALIDATION_ERROR, 중복 이메일 HTTP 409 + DUPLICATE_EMAIL, 요청 제한 HTTP 429 + RATE_LIMITED, 서버 오류 HTTP 500 + SERVER_ERROR를 사용한다. 오류 응답은 다음 공통 구조를 사용한다.
+
+```json
+{
+  "timestamp": "2026-07-30T00:00:00Z",
+  "status": 422,
+  "code": "VALIDATION_ERROR",
+  "message": "입력한 내용을 다시 확인해주세요.",
+  "fieldErrors": [
+    {
+      "field": "email",
+      "code": "INVALID_EMAIL",
+      "message": "올바른 이메일 형식이 아닙니다."
+    }
+  ]
+}
+```
+
+timestamp와 createdAt은 UTC ISO-8601 문자열이다. fieldErrors가 없는 오류는 빈 배열을 사용한다. 응답에는 password, passwordConfirmation, passwordHash, token, secret을 포함하지 않으며 스택 트레이스, SQL 메시지, 내부 클래스명과 입력 비밀번호를 반환하지 않는다. 사전 중복 조회와 DB 고유 제약조건 위반을 모두 DUPLICATE_EMAIL로 안전하게 변환한다.
+
+2.18.6 로그인 요청·응답과 인증 오류 계약
+요청은 POST /api/v1/auth/login과 다음 JSON을 사용한다.
+
+```json
+{
+  "email": "user@example.com",
+  "password": "example-password"
+}
+```
+
+성공 시 HTTP 200 OK와 다음 JSON을 반환하고 서버 세션을 생성한다. 비밀번호를 재해시하지 않으며 마지막 로그인 시각 컬럼을 추가하지 않는다.
+
+```json
+{
+  "email": "user@example.com",
+  "timezone": "Asia/Seoul"
+}
+```
+
+응답에는 password, passwordHash, token, refreshToken, sessionId, secret을 포함하지 않는다. 이메일 불일치, 비밀번호 불일치, 계정 잠금은 모두 HTTP 401 + INVALID_CREDENTIALS와 다음 공통 오류 JSON으로 동일하게 처리한다.
+
+```json
+{
+  "timestamp": "2026-07-30T00:00:00Z",
+  "status": 401,
+  "code": "INVALID_CREDENTIALS",
+  "message": "이메일 또는 비밀번호를 확인해주세요.",
+  "fieldErrors": []
+}
+```
+
+이메일 존재 여부, 비밀번호 불일치 여부, 계정 잠금 여부, 남은 시도 횟수, 세션 ID와 내부 예외 정보를 노출하지 않는다. 입력 형식 오류는 기존 공통 구조의 HTTP 422 + VALIDATION_ERROR를 사용한다.
+
+상태: 기술 설계 확정안
+
+2.18.7 로그아웃·세션 종료 계약
+POST /api/v1/auth/logout 성공은 HTTP 204 No Content이며 응답 본문과 리다이렉트 응답이 없다. 서버는 현재 Spring Session을 무효화하고 Spring Security 인증 정보를 제거해 SecurityContext를 초기화한다. 이미 세션이 없더라도 유효한 CSRF 토큰이 있으면 같은 204를 반환하며 로그인 상태를 응답으로 구분하지 않는다.
+
+성공 응답은 CALTALK_SESSION 쿠키를 빈 값, Path=/, Max-Age=0, HttpOnly=true, SameSite=Lax, 환경별 Secure로 삭제하고 Domain은 지정하지 않는다. 세션 ID, 쿠키 값, CSRF 토큰 등 인증 정보를 본문이나 헤더의 애플리케이션 데이터로 노출하지 않는다. 로그아웃 후 기존 세션 쿠키로 보호 API를 호출하면 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환한다.
+
+CSRF 토큰 누락 또는 불일치는 HTTP 403 + FORBIDDEN과 다음 공통 오류 JSON을 반환하며 HTML 리다이렉트를 하지 않는다.
+
+```json
+{
+  "timestamp": "2026-07-30T00:00:00Z",
+  "status": 403,
+  "code": "FORBIDDEN",
+  "message": "요청을 처리할 권한이 없습니다.",
+  "fieldErrors": []
+}
+```
+
+상태: 기술 설계 확정안
+
+2.18.8 현재 사용자 조회·인증 상태 복원 계약
+GET /api/v1/users/me는 현재 서버 세션의 인증 상태와 브라우저 새로고침 후 사용자 상태를 복원하는 보호 API다. Authentication principal의 정규화 이메일로 users를 다시 조회하며 요청 본문, 쿼리 파라미터 또는 경로로 사용자 ID나 이메일을 받지 않는다.
+
+성공은 HTTP 200 OK와 `Cache-Control: no-store`를 반환한다. ETag와 Last-Modified는 사용하지 않는다.
+
+```json
+{
+  "email": "user@example.com",
+  "timezone": "Asia/Seoul",
+  "createdAt": "2026-07-30T00:00:00Z"
+}
+```
+
+createdAt은 UTC ISO-8601 문자열이다. 응답에는 id, password, passwordHash, token, refreshToken, sessionId, secret, roles, authorities를 포함하지 않으며 세션 principal 자체를 직렬화하지 않는다.
+
+세션이 없거나 인증되지 않은 요청은 HTTP 401 + UNAUTHORIZED, message “인증이 필요합니다.”, 빈 fieldErrors의 공통 JSON으로 응답하고 HTML 리다이렉트와 Location 헤더를 사용하지 않는다. Authentication은 있으나 정규화 이메일에 해당하는 users 레코드가 없으면 삭제되거나 무효해진 사용자 세션으로 판단하여 현재 세션을 무효화하고 SecurityContext를 제거하며 CALTALK_SESSION을 삭제한 뒤 동일한 401 JSON을 반환한다. 사용자 존재 여부를 404나 별도 코드로 노출하지 않는다. 예상하지 못한 서버 오류는 500 SERVER_ERROR 공통 JSON을 사용하고 이메일·세션·쿠키·내부 오류 정보를 노출하지 않는다.
+
+상태: 기술 설계 확정안
+
+2.18.9 현재 사용자 시간대 변경 계약
+PATCH /api/v1/users/me는 현재 로그인 사용자의 표시 시간대를 변경하는 보호 API다. CALTALK_SESSION으로 인증된 Spring Security Authentication의 principal에서 정규화 이메일을 얻어 users를 다시 조회하며, 요청 본문·쿼리·경로에서 사용자 ID나 이메일을 받지 않는다. 공개 경로 또는 CSRF 예외 목록에 추가하지 않는다.
+
+요청 JSON은 다음과 같고 허용 필드는 timezone 하나뿐이다. email, password, userId, createdAt, roles, authorities 등 다른 필드는 받지 않는다.
+
+```json
+{
+  "timezone": "Asia/Seoul"
+}
+```
+
+timezone은 필수 문자열이며 앞뒤 공백을 제거한 뒤 Java `ZoneId`로 해석 가능한 IANA Time Zone ID인지 검증한다. `Asia/Seoul`, `Asia/Tokyo`, `America/New_York`, `Europe/London` 같은 지역 기반 ID를 허용한다. 빈 문자열, 공백 전용 값, 존재하지 않는 ID와 `KST`, `GMT+9`, `UTC+09:00`, `Seoul` 같은 약어·고정 오프셋·비지역 ID는 거부한다.
+
+검증 실패는 HTTP 422 + VALIDATION_ERROR와 다음 공통 오류 JSON을 반환한다.
+
+```json
+{
+  "timestamp": "2026-07-31T00:00:00Z",
+  "status": 422,
+  "code": "VALIDATION_ERROR",
+  "message": "입력한 내용을 다시 확인해주세요.",
+  "fieldErrors": [
+    {
+      "field": "timezone",
+      "code": "INVALID_TIMEZONE",
+      "message": "올바른 시간대를 선택해주세요."
+    }
+  ]
+}
+```
+
+하나의 트랜잭션에서 현재 사용자 한 명의 users.timezone만 갱신한다. email, password_hash, created_at, 사용자 ID와 기존 일정의 start_at·end_at UTC 절대값은 변경하지 않으며 DB 마이그레이션, updated_at 컬럼, 별도 버전·낙관적 잠금을 추가하지 않는다. 현재 저장값과 동일한 유효 시간대 요청도 멱등적으로 HTTP 200으로 처리한다. 동시 요청은 트랜잭션별로 정상 처리하고 마지막으로 커밋된 요청 값을 최종 상태로 사용한다.
+
+성공은 HTTP 200 OK, `Cache-Control: no-store`와 GET /api/v1/users/me와 동일한 다음 JSON을 반환한다.
+
+```json
+{
+  "email": "user@example.com",
+  "timezone": "Asia/Tokyo",
+  "createdAt": "2026-07-30T00:00:00Z"
+}
+```
+
+응답에는 id, password, passwordHash, token, refreshToken, sessionId, secret, roles, authorities를 포함하지 않는다. 시간대 변경은 저장된 일정의 절대 시각을 바꾸지 않고 표시 기준만 바꾼다. 클라이언트는 성공 후 현재 사용자 정보, 홈의 오늘 일정, 월간 캘린더, 선택 날짜 일정 목록, 현재 열린 일정 상세를 무효화하거나 다시 조회하고 새 시간대 기준으로 날짜·요일·시작·종료 시각·오늘 여부·선택 날짜 포함 여부를 다시 계산한다. 별도 캐시 API와 일정 일괄 변환 작업은 만들지 않는다.
+
+미인증 요청과 Authentication principal에 대응하는 users 레코드가 없는 경우는 2.18.8과 동일하게 HTTP 401 + UNAUTHORIZED JSON으로 처리한다. 후자의 경우 세션을 무효화하고 SecurityContext를 제거하며 CALTALK_SESSION을 삭제하고 사용자 존재 여부를 노출하지 않는다. CSRF 토큰 누락·불일치는 HTTP 403 + FORBIDDEN 공통 JSON으로 처리한다.
+
+상태: 기술 설계 확정안
+
+2.18.10 일정 생성 요청·응답 계약
+POST /api/v1/schedules는 CALTALK_SESSION으로 인증된 현재 사용자의 일정을 직접 생성하는 보호 API다. 공개 경로와 CSRF 예외 목록에 추가하지 않는다. 세션 principal의 정규화 이메일로 users를 조회하고 해당 사용자의 id를 schedules.owner_user_id로 사용하며, 요청에서 사용자 ID·이메일·시간대를 받지 않는다.
+
+요청 JSON은 다음 네 필드만 사용한다.
+
+```json
+{
+  "title": "팀 회의",
+  "startAt": "2026-08-01T10:00:00+09:00",
+  "endAt": "2026-08-01T11:00:00+09:00",
+  "location": "회의실 A"
+}
+```
+
+title은 필수 문자열이며 앞뒤 공백 제거 후 1자 이상 200자 이하다. 누락·null·빈 문자열·공백 전용 값은 title의 REQUIRED, 200자 초과는 title의 MAX_LENGTH fieldError로 HTTP 422 + VALIDATION_ERROR를 반환한다. location은 선택 문자열이며 앞뒤 공백을 제거하고 최대 200자로 제한한다. null과 누락을 허용하고 trim 후 빈 문자열은 null로 저장하며, 200자 초과는 location의 MAX_LENGTH fieldError로 같은 422 오류를 반환한다.
+
+startAt과 endAt은 필수 ISO-8601 offset date-time 문자열이며 UTC 오프셋을 반드시 포함한다. 서버는 요청 오프셋을 반영해 UTC Instant로 변환하고 schedules.start_at·end_at에 절대값만 저장한다. 입력 문자열과 사용자 timezone을 일정 레코드에 중복 저장하지 않는다. endAt은 startAt보다 반드시 늦어야 하며 동일하거나 빠르면 endAt의 INVALID_TIME_RANGE fieldError와 “종료 시각은 시작 시각보다 늦어야 합니다.” 메시지로 HTTP 422 + VALIDATION_ERROR를 반환한다. 과거 절대 시각의 PWA 직접 생성은 허용한다.
+
+description, allDay, userId, ownerUserId, email, timezone, recurrence, reminder, participants, color, category, createdAt, updatedAt, version 등 계약 외 필드는 요청 DTO에 포함하지 않는다. 계약 외 필드가 전달되면 무시해 저장하는 대신 HTTP 422 + VALIDATION_ERROR로 요청을 거부하며, 입력 전체 원문과 소유자 관련 값을 오류 응답에 반사하지 않는다. 반복·종일·알림·참석자·카테고리·색상은 MVP 범위에 추가하지 않는다.
+
+입력과 소유권 검증 뒤 같은 owner_user_id의 기존 일정 중 `existing.start_at < candidateEndAt AND existing.end_at > candidateStartAt`을 만족하는 일정을 조회한다. 한 일정의 종료와 다른 일정의 시작이 정확히 맞닿는 경우는 충돌이 아니다. 충돌이 없으면 현재 사용자 조회, 일정과 CREATE 변경 이력 저장, 응답 생성까지 하나의 트랜잭션에서 처리한다. 저장 실패 시 일정과 이력을 모두 롤백하며 외부 API와 Redis를 호출하지 않는다.
+
+충돌이 있으면 최초 POST에서 일정과 이력을 저장하지 않고 HTTP 409 + SCHEDULE_CONFLICT와 다음 확장 오류 JSON을 반환한다. confirmationId는 confirmation_requests.id를 JSON 숫자로 노출한다. conflicts는 현재 사용자의 충돌 일정만 startAt 오름차순, 같은 startAt이면 id 오름차순으로 정렬한다.
+
+```json
+{
+  "timestamp": "2026-07-31T00:00:00Z",
+  "status": 409,
+  "code": "SCHEDULE_CONFLICT",
+  "message": "같은 시간대에 다른 일정이 있습니다.",
+  "fieldErrors": [],
+  "confirmationId": 123,
+  "conflicts": [
+    {
+      "id": 10,
+      "title": "기존 일정",
+      "startAt": "2026-08-01T00:30:00Z",
+      "endAt": "2026-08-01T01:30:00Z",
+      "location": "회의실 B"
+    }
+  ]
+}
+```
+
+conflicts 항목은 id·title·startAt·endAt·location만 포함하고 시각은 UTC Z 표기를 사용한다. owner_user_id, user_id, 이메일, version, createdAt, updatedAt, candidate_fingerprint, conflict_snapshot_hash, 내부 자동 재계산 정보와 다른 사용자의 일정은 반환하지 않는다.
+
+클라이언트 승인 boolean을 최초 요청이나 일정 생성 API 재요청에 추가하지 않으며, 사용자는 POST /api/v1/confirmations/{confirmationId}/approve에 `{ "conflictAcknowledged": true }`를 보내는 기존 공통 흐름으로 계속 생성을 승인한다. 승인 엔드포인트는 2.18.3의 HTTP 200 계약을 유지하고 confirmation의 user_id 소유권, PENDING 상태, 5분 만료, candidate_fingerprint, 필요한 target_schedule_version과 최신 conflict_snapshot_hash를 재검증한다. 충돌 목록이 바뀌면 기존 행을 SUPERSEDED로 바꾸고 최신 후보를 자동 발급하며, 승인 가능하면 일정·CREATE 이력 저장과 CONSUMED 전환을 같은 트랜잭션에서 처리한다. 다른 사용자의 일정은 충돌 조회 대상이 아니다. 일반 POST를 같은 값으로 반복하면 별개의 생성 요청으로 처리하되, 각 요청 시점에 충돌이 있으면 동일한 confirmation 절차를 거친다.
+
+충돌 없는 생성 성공은 HTTP 201 Created, `Cache-Control: no-store`, `Location: /api/v1/schedules/{id}`와 다음 JSON을 반환한다.
+
+```json
+{
+  "id": 1,
+  "title": "팀 회의",
+  "startAt": "2026-08-01T01:00:00Z",
+  "endAt": "2026-08-01T02:00:00Z",
+  "location": "회의실 A",
+  "createdAt": "2026-07-31T01:30:00Z",
+  "updatedAt": "2026-07-31T01:30:00Z",
+  "version": 0
+}
+```
+
+startAt, endAt, createdAt, updatedAt은 UTC ISO-8601 Z 표기다. location이 없으면 null을 반환한다. 응답에는 owner_user_id, userId, email, password, sessionId, token, secret과 confirmation 내부 정보를 포함하지 않는다.
+
+미인증 요청은 HTML 리다이렉트 없이 HTTP 401 + UNAUTHORIZED JSON, CSRF 누락·불일치는 HTTP 403 + FORBIDDEN JSON을 반환한다. Authentication은 있으나 users 레코드가 없으면 2.18.8의 경로를 재사용해 세션을 무효화하고 SecurityContext를 제거하며 CALTALK_SESSION을 삭제한 뒤 사용자 존재 여부 노출 없이 401로 처리한다. 예상하지 못한 서버 오류는 HTTP 500 + SERVER_ERROR 공통 JSON으로 일반화하고 SQL 메시지·내부 클래스명·이메일·세션·쿠키·입력 전체 원문을 노출하지 않는다.
+
+상태: 기술 설계 확정안
+
+2.18.11 일정 조회 요청·응답 계약
+기간별 일정 조회는 `GET /api/v1/schedules?from={from}&to={to}`를 사용한다. 오늘 일정, 월간 캘린더, 선택 날짜 일정 목록을 위한 별도 API는 만들지 않고 모두 이 API를 재사용한다. from과 to는 필수 ISO-8601 offset date-time이며 서버에서 UTC Instant로 변환한다. 오프셋 없는 시각은 거부한다. 조회 기간은 시작 포함·종료 미포함인 반개구간 `[from, to)`이고 from은 to보다 반드시 빨라야 한다.
+
+조회는 현재 인증 사용자의 일정 중 다음 조건을 만족하는 모든 일정을 반환한다.
+
+```sql
+WHERE owner_user_id = :currentUserId
+  AND start_at < :requestedTo
+  AND end_at > :requestedFrom
+ORDER BY start_at ASC, end_at ASC, id ASC
+```
+
+요청 시작 경계에 정확히 끝나는 일정은 제외하고 요청 시작 경계에 정확히 시작하는 일정은 포함한다. 요청 종료 경계에 정확히 시작하는 일정은 제외하고 요청 종료 경계에 정확히 끝나는 일정은 포함한다. 여러 날짜에 걸친 일정도 겹침 조건을 만족하면 포함한다. userId, ownerUserId, email 쿼리 파라미터는 허용하지 않는다. 페이지네이션과 임의의 최대 조회 일수 제한은 MVP 계약에 추가하지 않으며, 운영상 제한값은 후속 결정으로 보류한다.
+
+성공은 HTTP 200과 `Cache-Control: no-store`를 반환한다. 목록은 상세 응답과 분리된 DTO를 사용하며 다음 `items` 래퍼로 반환한다. 빈 결과도 404가 아닌 HTTP 200과 `"items": []`를 반환한다.
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "팀 회의",
+      "startAt": "2026-08-01T01:00:00Z",
+      "endAt": "2026-08-01T02:00:00Z",
+      "location": "회의실 A",
+      "version": 0
+    }
+  ]
+}
+```
+
+목록 항목은 id·title·startAt·endAt·location·version만 포함한다. createdAt·updatedAt은 상세 조회에서만 반환한다. 모든 시각은 UTC ISO-8601 Z 표기이며 ownerUserId·userId·email·내부 해시·confirmation·변경 이력은 반환하지 않는다.
+
+일정 상세 조회는 `GET /api/v1/schedules/{scheduleId}`를 사용한다. 현재 인증 사용자의 소유 일정만 조회하며 성공은 HTTP 200, `Cache-Control: no-store`와 2.18.10의 생성 성공 응답과 같은 id·title·startAt·endAt·location·createdAt·updatedAt·version을 반환한다. 일정이 없거나 다른 사용자의 일정이면 존재 여부를 구분하지 않고 동일한 HTTP 404 + SCHEDULE_NOT_FOUND 공통 오류 JSON을 반환한다. 소유자 식별값, confirmation과 변경 이력 내부 정보는 반환하지 않는다.
+
+from·to 누락, 형식 오류, 오프셋 없는 시각은 기존 공통 검증 오류 계약에 따라 HTTP 422 + VALIDATION_ERROR와 fieldErrors를 반환한다. from이 to보다 같거나 늦으면 field `to`, reason `INVALID_TIME_RANGE`로 통일한다. scheduleId 형식 오류도 HTTP 422 + VALIDATION_ERROR로 처리한다. 미인증 요청은 HTTP 401 + UNAUTHORIZED JSON이다. 두 GET API는 인증이 필수이지만 상태를 변경하지 않으므로 CSRF 토큰을 요구하지 않으며 공개 경로에 추가하지 않는다.
+
+홈은 사용자 시간대 기준 오늘 시작과 다음 날 시작, 월간 캘린더는 표시 월 시작과 다음 달 시작, 선택 날짜 목록은 해당 날짜 시작과 다음 날 시작을 각각 offset date-time의 from·to로 계산해 기간 조회 API를 호출한다. 서버와 DB는 UTC 절대 시각을 유지한다. 시간대 변경 뒤에는 사용자 정보, 오늘 일정, 월간 캘린더, 선택 날짜 목록과 열린 일정 상세를 무효화하거나 재조회하고 새 시간대로 표시와 날짜 포함 여부만 다시 계산한다.
+
+기존 `idx_schedules_owner_start (owner_user_id, start_at)`는 소유자 필터와 시작 시각 범위 축소를 지원하므로 이번 단계에서 새 인덱스를 제안하지 않는다. end_at 겹침 조건과 최종 정렬 비용은 실제 실행 계획과 데이터 규모로 후속 관찰한다. 목록 조회는 소유 일정과 응답 필드를 한 번의 조회로 가져오며 일정별 추가 조회를 발생시키지 않아 N+1을 방지한다.
+
+상태: 기술 설계 확정안
+
+2.18.12 일정 수정·삭제 요청·응답 계약
+일정 수정은 `PATCH /api/v1/schedules/{scheduleId}`를 사용하는 부분 수정이다. CALTALK_SESSION으로 인증된 현재 사용자의 일정만 `scheduleId + owner_user_id` 조건으로 한 번에 조회하며, 일정이 없거나 다른 사용자 소유이면 존재 여부를 구분하지 않고 HTTP 404 + SCHEDULE_NOT_FOUND를 반환한다. 요청 JSON은 title·startAt·endAt·location·version만 허용하고 version은 필수인 0 이상의 정수다. title·startAt·endAt·location 중 최소 하나는 필드로 전달해야 하며 version만 있는 요청과 계약 외 필드는 HTTP 422 + VALIDATION_ERROR로 거부한다.
+
+PATCH에서 전달하지 않은 필드는 기존 값을 유지한다. title은 전달 시 null을 허용하지 않고 trim 후 1자 이상 200자 이하여야 한다. startAt과 endAt은 전달 시 null을 허용하지 않는 ISO-8601 offset date-time이며 UTC Instant로 변환한다. location은 필드 미전달이면 유지(KEEP), null이면 삭제(REMOVE), 문자열이면 trim 후 저장(SET)하고 trim 결과가 빈 문자열이면 REMOVE로 정규화한다. 최종 후보의 endAt은 startAt보다 반드시 늦어야 하며 관계 오류는 endAt의 INVALID_TIME_RANGE로 처리한다.
+
+요청 version이 현재 schedules.version과 다르면 HTTP 409 + SCHEDULE_VERSION_CONFLICT, message “일정이 다른 곳에서 변경되었습니다.”, 빈 fieldErrors를 반환하고 최신 일정 본문은 포함하지 않는다. 클라이언트는 상세를 다시 조회한 뒤 사용자 입력을 유지한 상태로 재시도 여부를 결정하며 자동 덮어쓰지 않는다. version이 일치하고 정규화된 최종 후보가 기존 값과 완전히 같으면 HTTP 200 멱등 성공으로 현재 ScheduleResponse를 반환하고 updatedAt·version을 변경하거나 UPDATE 이력을 추가하지 않는다.
+
+실제 변경이 있고 충돌이 없으면 현재 값 전체를 before, 최종 값 전체를 after로 하는 change_type UPDATE·source_channel PWA·현재 changed_by_user_id 이력을 일정 수정과 같은 트랜잭션에 저장한다. JPA `@Version` 증가와 `updatedAt` 갱신을 flush한 뒤 증가된 version과 UTC updatedAt이 포함된 ScheduleResponse를 HTTP 200, `Cache-Control: no-store`로 반환한다. location의 실제 null은 before/after에도 null로 기록한다.
+
+최종 후보의 충돌은 현재 일정 자신을 제외하고 다음 조건으로 조회하며 startAt, id 오름차순으로 정렬한다.
+
+```sql
+WHERE existing.owner_user_id = :currentUserId
+  AND existing.id <> :targetScheduleId
+  AND existing.start_at < :candidateEndAt
+  AND existing.end_at > :candidateStartAt
+ORDER BY existing.start_at ASC, existing.id ASC
+```
+
+충돌이 있으면 일정과 이력을 변경하지 않고 HTTP 409 + SCHEDULE_CONFLICT, confirmationId와 conflicts를 반환한다. 기존 confirmation_requests 통합 모델에 origin_channel PWA, command_type UPDATE_EVENT, 현재 사용자, target_schedule_id, 검증한 요청 version을 target_schedule_version으로 저장한다. title·start_at·end_at은 요청에서 변경하지 않은 필드를 null로 저장하고 location은 KEEP·SET·REMOVE 및 SET일 때만 location_value를 저장하는 델타 규칙을 유지한다. candidate_fingerprint의 canonical 순서는 command_type, target_schedule_id, title, start_at, end_at, location_action, location_value이며 충돌 목록의 id+version으로 conflict_snapshot_hash를 계산한다. 새 요청은 PENDING·conflict_acknowledged=false·5분 만료다.
+
+승인은 `POST /api/v1/confirmations/{confirmationId}/approve`의 2.8.3 절차를 재사용한다. confirmation 잠금, 사용자·상태·만료·대상 존재와 소유권, target_schedule_version, 저장 델타 적용 결과, 시간 범위와 최신 충돌 해시를 재검증한다. 대상이 사라지면 CONFIRMATION_TARGET_GONE, 대상 version 또는 충돌 목록이 바뀌면 기존 confirmation을 SUPERSEDED로 바꾸고 최신 기준의 새 confirmation과 CONFIRMATION_SUPERSEDED를 반환한다. 이 승인 경로에는 직접 PATCH·DELETE의 SCHEDULE_VERSION_CONFLICT를 사용하지 않고 기존 자동 재계산 계약을 유지한다. 조건이 같고 conflictAcknowledged=true이면 일정 UPDATE, 전체 before/after 이력, CONSUMED 전환을 같은 트랜잭션에서 한 번만 처리한다. STALE_CONFIRMATION은 계속 보류하며 새 코드로 추가하지 않는다.
+
+일정 삭제는 `DELETE /api/v1/schedules/{scheduleId}?version={version}`을 사용한다. DELETE 본문과 If-Match 헤더는 사용하지 않으며 version은 필수인 0 이상의 정수다. 현재 사용자 일정만 `scheduleId + owner_user_id` 조건으로 조회하고 없음·타 사용자 소유는 동일한 HTTP 404 + SCHEDULE_NOT_FOUND로 처리한다. version 불일치는 PATCH와 같은 HTTP 409 + SCHEDULE_VERSION_CONFLICT를 반환한다. PWA의 삭제 확인 모달은 클라이언트 책임이며 직접 DELETE에 confirmation_requests를 만들지 않는다.
+
+삭제 성공은 같은 트랜잭션에서 새 DELETE 이력을 생성하지 않고 일정을 즉시 하드 삭제하며 HTTP 204 No Content, 빈 본문, `Cache-Control: no-store`를 반환한다. 기존 CREATE·UPDATE 이력은 `schedule_change_history.schedule_id ON DELETE CASCADE`에 의해 함께 제거된다. change_type DELETE는 현재 MVP에서 사용하지 않으며 별도 감사 로그·soft delete·FK 변경을 추가하지 않는다. 향후 영구 삭제 감사가 필요하면 별도 감사 로그 구조를 검토한다. 같은 ID의 재삭제는 404 SCHEDULE_NOT_FOUND다.
+
+PATCH와 DELETE는 공개 경로나 CSRF 예외에 추가하지 않는다. 미인증은 401 UNAUTHORIZED, CSRF 누락·불일치는 403 FORBIDDEN이다. scheduleId 또는 version의 누락·형식·범위 오류와 PATCH 필드 검증은 422 VALIDATION_ERROR를 사용한다. 성공 후 클라이언트는 열린 상세, 홈 오늘 일정, 월간 캘린더와 선택 날짜 목록을 무효화하거나 재조회한다. 수정은 전후 날짜 범위가 모두 갱신 대상이며, 삭제 성공은 상세를 닫고 안전한 목록이나 캘린더로 이동한다.
+
+테스트는 각 부분 필드 수정, location KEEP·SET·REMOVE, 시간 검증, 계약 외 필드, 무변경 멱등 요청, version 일치·불일치, 자기 자신 제외 충돌, UPDATE_EVENT confirmation 생성·승인·SUPERSEDED·대상 소멸, UPDATE 전체 스냅샷 이력, 삭제 204·재삭제 404·버전 충돌·CASCADE 이력 제거, 소유권 은닉, 인증·CSRF와 캐시 갱신 범위를 포함한다.
 
 상태: 기술 설계 확정안
 
@@ -540,7 +887,7 @@ Redis 등 별도 인프라를 추가하지 않는 원칙을 유지하며, 카운
 일반 API의 단기 속도 제한	단일 서버 MVP에서는 애플리케이션 메모리 기반 카운터 사용 가능. 재시작 시 초기화되어도 무방한 보조적 제한이다
 서버 재시작 후에도 유지되어야 하는 보안 상태(로그인 실패 누적, 계정 잠금, 연결 코드 실패 횟수)	PostgreSQL에 저장
 엔드포인트	제한 대상	기본값	저장 위치
-로그인 실패(계정)	user_id	15분당 5회 → 15분 잠금	PostgreSQL(login_security_state, 2.9.9)
+로그인 실패(계정)	정규화 이메일로 식별한 user_id	15분당 5회 → 15분 잠금	PostgreSQL(login_security_state, 2.9.9)
 로그인 실패(IP, 보조)	IP	15분당 20회	애플리케이션 메모리
 회원가입(IP)	IP	1시간당 5회	애플리케이션 메모리
 연결 코드 발급(사용자)	user_id	10분당 3회	PostgreSQL(connection_codes.issued_at 카운트, 기존 테이블 그대로 사용)
@@ -555,7 +902,7 @@ IP 기반 보조 제한의 개인정보 최소화: 애플리케이션 메모리 
 초기화되어도 되는 것: 위 표에서 "애플리케이션 메모리"로 표시된 모든 보조·단기 제한.
 반드시 유지되어야 하는 것: 계정 잠금(login_security_state), 연결 코드 실패·발급 이력(connection_codes).
 이 방식은 단일 인스턴스 MVP에서만 사용하며, 다중 인스턴스로 확장이 필요해지면 애플리케이션 메모리 카운터를 공용 제한 저장소로 옮기는 것을 재검토한다.
-모든 기본값은 환경변수로 조정 가능하다. 로그인 실패·연결 코드 검증 실패는 계정/코드 존재 여부를 노출하지 않는 동일한 일반 오류로 응답한다(기존 결정 유지).
+모든 기본값은 환경변수로 조정 가능하다. 로그인 실패·연결 코드 검증 실패는 계정/코드 존재 여부를 노출하지 않는 동일한 일반 오류로 응답한다(기존 결정 유지). 계정 기준 실패가 5회에 도달하면 15분간 잠그되 외부에는 INVALID_CREDENTIALS로 동일하게 응답한다. IP 기준 실패가 15분 동안 20회를 초과하면 HTTP 429 + RATE_LIMITED와 초 단위 Retry-After 헤더를 반환한다. 로그인 성공 시 해당 계정의 실패 횟수를 초기화하고 필요한 범위에서 해당 이메일·IP 조합의 보조 실패 기록도 초기화한다.
 
 상태: 기술 설계 확정안
 
@@ -570,13 +917,31 @@ DB 장애	성공하지 않은 변경을 성공으로 응답하지 않음
 상태: 확정
 
 2.21 테스트 전략
+회원가입 단위·MVC 테스트: 이메일 trim·소문자 정규화, 이메일 형식·254자 제한, 비밀번호 8~64자·공백 전용 거부, 비밀번호 확인 일치, 무인증 접근, 201 응답 필드와 민감 필드 부재, 422·409 오류 계약을 검증한다.
+회원가입 통합 테스트: PostgreSQL에서 users 스키마와 기본 시간대 Asia/Seoul, 정규화 이메일 저장, BCrypt 해시와 원문 불일치, 해시 일치 검증, 중복 이메일 사전 조회와 DB 고유 제약 경쟁 경로의 DUPLICATE_EMAIL 변환, 자동 세션 미생성을 검증한다.
+로그인 단위·MVC 테스트: 이메일 정규화·형식·254자 제한, 비밀번호 8~64자, 200 응답 필드와 민감 필드 부재, 422 입력 오류, 계정 부재·비밀번호 불일치·잠금의 동일한 401 INVALID_CREDENTIALS 응답을 검증한다.
+로그인 세션·보안 테스트: CALTALK_SESSION의 HttpOnly·SameSite=Lax·Path=/와 Domain·Max-Age 미지정, 환경별 Secure, 12시간 유휴 만료, 기존 세션 ID 교체, 재로그인, JSON 401 UNAUTHORIZED·403 FORBIDDEN, HTML 리다이렉트 부재를 검증한다.
+로그아웃 테스트: 인증 사용자 요청의 204와 빈 본문, 현재 세션 무효화, SecurityContext 제거, CALTALK_SESSION의 빈 값·Path=/·Max-Age=0·HttpOnly·SameSite=Lax·환경별 Secure·Domain 미지정, 시작 화면 이동, 기존 쿠키의 보호 API 401 UNAUTHORIZED, 유효한 CSRF 토큰을 포함한 미인증 재요청의 204, CSRF 누락·불일치의 403 FORBIDDEN JSON, HTML 리다이렉트 부재, 세션 ID·쿠키 값·토큰 비노출을 검증한다.
+회원 탈퇴 테스트: 인증·CSRF와 currentPassword 필수·공백 전용 거부·64자 경계, 비밀번호 불일치의 401 INVALID_CREDENTIALS·빈 fieldErrors·민감정보 비노출, 현재 V1~V3 기준 confirmation_requests 전체 삭제 후 schedules 하드 삭제·schedule_change_history CASCADE·users 삭제와 다른 사용자 데이터 보존을 검증한다. DB 삭제 실패 시 전체 롤백과 세션 유지를 확인하고, 커밋 성공 뒤에만 현재 HTTP 세션 무효화·SecurityContext 제거·CALTALK_SESSION 삭제가 수행되는지, 204·빈 본문·Cache-Control no-store와 기존 쿠키의 보호 API 및 탈퇴 재요청 401을 검증한다.
+현재 사용자 조회 테스트: 로그인 뒤 GET /api/v1/users/me의 200, email·timezone·UTC createdAt, Cache-Control no-store, id·password·passwordHash·token·refreshToken·sessionId·secret·roles·authorities 부재를 검증한다. 세션 없는 요청의 401 UNAUTHORIZED JSON·Content-Type·리다이렉트와 Location 부재, 로그아웃 뒤 기존 쿠키의 401, users 레코드가 없는 인증 세션의 401·세션 무효화·SecurityContext 제거·CALTALK_SESSION 삭제·사용자 존재 여부 비노출도 검증한다.
+시간대 변경 단위·MVC 테스트: 인증된 PATCH /api/v1/users/me의 200, timezone 단일 요청 필드, trim 적용, 지역 기반 IANA Zone ID 허용, 빈 값·공백·존재하지 않는 ID·KST·GMT+9·UTC+09:00 거부, 422 VALIDATION_ERROR와 timezone의 INVALID_TIMEZONE fieldError, email·createdAt 유지, Cache-Control no-store와 민감 필드 부재를 검증한다.
+시간대 변경 통합·보안 테스트: users.timezone만 변경되고 GET /api/v1/users/me에서 변경값이 확인되는지, 동일 값 재요청도 200인지, email·password_hash·created_at·사용자 ID와 일정 UTC 값 및 DB 스키마가 불변인지 검증한다. 미인증 401 UNAUTHORIZED, 사용자 없는 인증 세션 정리, CSRF 누락·불일치 403 FORBIDDEN, 다른 사용자 변경 불가와 마지막 정상 커밋 값의 최종 반영도 검증한다.
+시간대 변경 클라이언트 테스트: 성공 시 사용자 정보·오늘 일정·월간 캘린더·선택 날짜 목록·열린 일정 상세를 무효화하거나 재조회하고 새 시간대 기준으로 모든 날짜·시각 표시와 오늘·선택 날짜 포함 여부를 다시 계산하는지 검증한다. 실패 시 기존 시간대와 일정 캐시를 유지하고 필드 검증 오류와 일반 서버 오류를 구분하는지 검증한다.
+일정 생성 단위·MVC 테스트: title 필수·trim·공백 거부·200자 경계, location 선택·trim·빈 값의 null 변환·200자 경계, startAt·endAt 필수·offset date-time 형식, endAt > startAt, 과거 일정 허용과 계약 외 필드 거부를 검증한다. 입력 오류는 422 VALIDATION_ERROR와 title·location·endAt의 REQUIRED·MAX_LENGTH·INVALID_TIME_RANGE fieldError를 사용하고 입력 전체 원문을 노출하지 않는지 확인한다.
+일정 생성 통합 테스트: 인증 후 충돌 없는 POST /api/v1/schedules의 201, Cache-Control no-store, Location 헤더, 현재 사용자의 owner_user_id, UTC Instant 저장, CREATE 변경 이력, location null·trim, 응답의 id·title·startAt·endAt·location·createdAt·updatedAt·version과 UTC Z 표기, 소유자·인증·민감 필드 부재를 PostgreSQL에서 검증한다.
+일정 생성 충돌 테스트: 같은 사용자의 겹치는 범위는 최초 POST에서 DB 변경 없이 409 SCHEDULE_CONFLICT와 confirmationId·충돌 목록을 반환하고, 맞닿는 경계와 다른 사용자 일정은 충돌로 보지 않는지 확인한다. 승인 후 한 번만 생성되는지, 위조·타 사용자 confirmation 사용·만료·중복 승인·승인 대기 중 충돌 변경을 기존 공통 confirmation 계약대로 처리하는지 검증한다.
+일정 충돌 응답 테스트: confirmationId가 숫자이고 conflicts가 startAt·id 순으로 정렬되며 각 항목에 id·title·UTC startAt·UTC endAt·location만 있는지 검증한다. 다른 사용자 일정과 owner_user_id·user_id·version·생성/수정 시각·후보/충돌 해시·내부 재계산 정보가 노출되지 않는지 확인한다.
+confirmation 물리 스키마 테스트: user_id와 상태 5개, 5분 만료, 개별 후보 필드, CHAR(64) candidate_fingerprint·conflict_snapshot_hash, 부분 유니크 제약과 user/status·expires_at·target_schedule_id 인덱스, 세 FK의 NO ACTION을 검증한다.
+변경 이력 물리 스키마 테스트: before/after 컬럼, source_channel·change_type CHECK, schedule_id FK의 ON DELETE CASCADE, changed_by_user_id FK의 NO ACTION과 두 복합 인덱스를 검증한다. CREATE는 before NULL·after 저장, UPDATE는 양쪽 저장을 확인하고, 일정 삭제 시 새 DELETE 이력이 생성되지 않는지 확인한다.
+일정 생성 인증·트랜잭션 테스트: 미인증 401 UNAUTHORIZED, CSRF 누락·불일치 403 FORBIDDEN, 요청 userId·ownerUserId로 소유자를 바꿀 수 없음, 사용자 없는 인증 세션 정리, 일정·이력 저장 실패 시 전체 롤백, 일반 동일 요청 반복의 별도 일정 생성과 다른 사용자 일정 불변을 검증한다.
+로그인 제한 테스트: 정규화 이메일로 식별한 계정의 15분·5회 잠금과 성공 후 초기화, IP의 15분·20회 제한 및 429 RATE_LIMITED·초 단위 Retry-After를 검증한다.
 단위 테스트: 충돌 판정, 지속시간 유지, 낙관적 잠금 버전 비교, conflict_snapshot_hash/candidate_fingerprint 계산(정규화 규칙 포함), login_security_state의 15분 롤링 윈도·잠금 로직
 통합 테스트: 확인 승인의 잠금→검증→소비/재계산 전체 흐름, PWA 충돌 확인이 자연어 흐름과 동일한 승인 엔드포인트를 공유하는지
 동시성 테스트: 동일 confirmationId에 대한 동시 승인 요청 중 하나만 커밋되는지
 동일 후보 동시 최초 생성 테스트(신규): 동일 user_id·candidate_fingerprint를 가진 완전히 동일한 최초 생성 요청 두 개가 PENDING 행이 아직 하나도 없는 상태에서 동시에 들어올 때, 부분 유니크 인덱스 위반이 발생해도 이것이 클라이언트에 HTTP 500으로 노출되지 않고, 두 요청 모두 결과적으로 동일한 하나의 confirmationId(또는 상태가 달라졌다면 새로 발급된 confirmationId)를 정상적으로 받는지 확인
 자동 재계산 테스트: 대상 일정의 버전이 승인 대기 중 바뀌었을 때 기존 확인이 SUPERSEDED로 바뀌고 새 confirmationId·최신 후보·최신 충돌 목록이 자동 발급되는지, 기존 confirmationId가 이후 재사용 불가한지, 대상 일정 자체가 삭제된 경우에만 재입력 요청으로 이어지는지
 동일 후보 재사용 재검증 테스트: 동일 candidate_fingerprint로 재요청 시 버전·충돌이 동일하면 기존 confirmationId가 재사용되고, 달라졌으면 기존이 SUPERSEDED로 바뀌며 새 확인이 발급되는지
-삭제 테스트: 하드 삭제 시 schedule_change_history가 ON DELETE CASCADE로 함께 삭제되는지
+삭제 테스트: 새 DELETE 이력을 생성하지 않고 하드 삭제하며 기존 schedule_change_history가 ON DELETE CASCADE로 같은 트랜잭션에서 함께 삭제되는지
 요청 제한 테스트: 로그인 실패 누적 후 계정 잠금이 걸리는지, 애플리케이션 재시작(또는 그에 준하는 상태 초기화) 시뮬레이션 후에도 login_security_state·connection_codes.fail_count 기반 잠금이 유지되는 반면 메모리 기반 보조 제한만 초기화되는지
 권한·시간대·멱등성·만료 테스트: 기존과 동일
 AI 장애 응답 테스트: 웹은 503+AI_SERVICE_UNAVAILABLE, 카카오는 정상 스킬 응답 형태로 반환되는지
@@ -659,6 +1024,10 @@ OpenAI 모델명 / API 데이터 보관 정책	확정하지 않음	OpenAI 공식
 20	카카오 요청 진위 검증 수단	서명/헤더/IP대역 여부 확인 후 결정	공식 미확인 상태에서 확정 금지	—	PoC 검증 필요
 21	PostgreSQL 호스팅 방식	미정	배포 단계 결정	—	보류
 22	관리형 DB 백업 보관 기간	미정	제공업체 선택 후 확정	—	보류
+23	회원가입 계약	email·password·passwordConfirmation 요청, 201 응답, 422·409·429·500 공통 오류 구조	구현 전 입력·저장·응답 계약 일치	이름·시간대 가입 입력	기술 설계 확정안
+24	로그인 계약	email·password 요청, 200 응답, Spring Security 세션과 CALTALK_SESSION, 일반화된 401 오류	세션 인증과 화면 계약 일치	JWT·자동 로그인	기술 설계 확정안
+25	로그아웃 계약	POST, CSRF 보호, 멱등 204, 현재 세션·SecurityContext 종료와 CALTALK_SESSION 삭제	인증 상태 비노출과 화면 계약 일치	리다이렉트·전체 세션 종료	기술 설계 확정안
+26	현재 사용자 조회 계약	GET /api/v1/users/me, 세션 principal 이메일로 DB 재조회, 200 email·timezone·createdAt, no-store	새로고침 인증 복원과 무효 세션 정리	사용자 ID·역할·JWT 노출	기술 설계 확정안
 2.26 알려진 위험과 대응
 위험	영향	대응
 카카오 5초 제약과 OpenAI 응답 지연	스킬 응답 실패	짧은 내부 타임아웃 + 카카오 규격 정상 응답 내 실패 안내
@@ -714,6 +1083,10 @@ OpenAI 실제 데이터 보관 정책 미확정	개인정보 안내가 실제 �
 
 2.29 다음 단계(화면·기능 명세서)에 전달할 사항
 화면 후보: 회원가입/로그인, 월간 캘린더(+날짜별 목록), 일정 상세, 일정 등록/수정 폼(충돌 시 확인 다이얼로그), 웹 자연어 대화 화면, 카카오 연결 관리 화면, 계정 설정
+회원가입: email, password, passwordConfirmation만 입력받고 이메일은 trim·소문자 정규화 후 최대 254자로 검증한다. 비밀번호는 8~64자이며 공백 전용을 거부하고 확인값과 정확히 일치시킨다. 성공은 201과 email·timezone·createdAt을 반환하며 자동 로그인과 세션 생성은 하지 않는다. 중복 이메일은 409 DUPLICATE_EMAIL, 입력 오류는 422 VALIDATION_ERROR로 처리한다.
+로그인: email과 password만 입력받고 성공은 200과 email·timezone을 반환한다. 실패 원인은 401 INVALID_CREDENTIALS로 일반화하며, 세션 쿠키는 CALTALK_SESSION이고 유휴 만료는 12시간이다. 로그인 성공 후 검증된 내부 상대 복귀 경로가 있으면 우선 이동하고 없으면 홈으로 이동한다. 실패 시 이메일은 유지하고 비밀번호는 지운다.
+로그아웃: POST /api/v1/auth/logout은 CSRF 보호 대상으로 유지한다. 유효한 CSRF 토큰이 있으면 인증 여부와 무관하게 현재 세션과 SecurityContext를 정리하고 CALTALK_SESSION을 삭제한 뒤 빈 본문의 204를 반환한다. 클라이언트는 인증 상태와 사용자 캐시를 초기화하고 로그인 화면이 아닌 시작 화면으로 이동하며, 서버 리다이렉트와 민감 인증 정보 노출은 허용하지 않는다.
+현재 사용자: 앱 초기 진입과 새로고침에서 GET /api/v1/users/me를 호출한다. 200이면 email·timezone·createdAt을 메모리 상태에 복원하고, 401이면 공개 화면은 유지하며 보호 화면에서 시작 화면으로 이동한다. 응답은 no-store이며 사용자 없는 인증 세션은 무효화하고 SecurityContext와 CALTALK_SESSION을 정리한 뒤 일반화된 401 JSON을 반환한다.
 화면별 상태: 로딩, 데이터 없음, 입력 오류(422), 권한 없음(403), 인증 만료(401), REPHRASE_REQUIRED, AI_SERVICE_UNAVAILABLE(웹 503), SCHEDULE_CONFLICT→확인 다이얼로그, CONFIRMATION_SUPERSEDED(→"정보가 바뀌어 다시 확인이 필요합니다"와 함께 최신 제안 내용을 자동으로 다시 보여주고 재확인만 받으면 됨), CONFIRMATION_TARGET_GONE(→"해당 일정을 찾을 수 없습니다. 처음부터 다시 시도해주세요")
 계정 잠금 안내: 로그인 실패가 누적되어 잠긴 경우, 정확한 원인을 노출하지 않으면서도 "잠시 후 다시 시도해주세요" 수준의 문구로 안내
 PWA 저장 충돌 확인 다이얼로그와 자연어 대화의 최종 확인이 내부적으로 동일한 서버 로직을 사용한다는 점

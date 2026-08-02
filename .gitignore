@@ -4,6 +4,7 @@
 infra/.env
 .env.*
 !.env.example
+!infra/.env.prod.example
 *.pem
 *.key
 *.p12
@@ -57,5 +58,6 @@ temp/
 # Test and local data
 test-results/
 playwright-report/
+blob-report/
 .local/
 data/local/
