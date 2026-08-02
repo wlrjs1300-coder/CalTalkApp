@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -303,6 +304,16 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ApiErrorResponse> handleDataAccess(DataAccessException exception) {
+        return errorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_SERVER_ERROR",
+                "요청을 처리하는 중 문제가 발생했습니다.",
+                List.of()
+        );
+    }
+
     private ResponseEntity<ApiErrorResponse> errorResponse(
             HttpStatus status,
             String code,
@@ -379,6 +390,9 @@ public class GlobalExceptionHandler {
                     "INVALID_PASSWORD_LENGTH",
                     "비밀번호 확인은 8자 이상 64자 이하여야 합니다."
             );
+        }
+        if ("currentPassword".equals(field) && "Size".equals(validationCode)) {
+            return new FieldErrorResponse(field, "MAX_LENGTH", "64자 이하여야 합니다.");
         }
         return new FieldErrorResponse(field, "REQUIRED", "필수 입력값입니다.");
     }

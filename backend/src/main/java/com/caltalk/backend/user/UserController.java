@@ -3,6 +3,7 @@ package com.caltalk.backend.user;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,9 +19,14 @@ import jakarta.validation.Valid;
 public class UserController {
 
     private final CurrentUserService currentUserService;
+    private final AccountDeletionService accountDeletionService;
 
-    public UserController(CurrentUserService currentUserService) {
+    public UserController(
+            CurrentUserService currentUserService,
+            AccountDeletionService accountDeletionService
+    ) {
         this.currentUserService = currentUserService;
+        this.accountDeletionService = accountDeletionService;
     }
 
     @GetMapping("/me")
@@ -55,5 +61,24 @@ public class UserController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(currentUser);
+    }
+
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> deleteAccount(
+            Authentication authentication,
+            @Valid @RequestBody DeleteAccountRequest deleteRequest,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        accountDeletionService.deleteAccount(
+                authentication,
+                deleteRequest,
+                request,
+                response
+        );
+        currentUserService.logout(request, response);
+        return ResponseEntity.noContent()
+                .cacheControl(CacheControl.noStore())
+                .build();
     }
 }
