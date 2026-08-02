@@ -88,7 +88,8 @@ public class ConfirmationService {
             if (insertedId != null) {
                 return insertedId;
             }
-            return requireConcurrentPending(user, candidateFingerprint, conflictHash, null);
+            return convergeConcurrentCreate(
+                    user, title, startAt, endAt, location, candidateFingerprint);
         }
 
         ConfirmationRequest confirmation = new ConfirmationRequest(
@@ -159,7 +160,9 @@ public class ConfirmationService {
             if (insertedId != null) {
                 return insertedId;
             }
-            return requireConcurrentPending(user, fingerprint, conflictHash, targetVersion);
+            return convergeConcurrentUpdate(
+                    user, targetId, title, startAt, endAt,
+                    locationAction, locationValue, fingerprint);
         }
         ConfirmationRequest confirmation = ConfirmationRequest.update(
                 user, targetId, targetVersion, title, startAt, endAt,
@@ -171,22 +174,92 @@ public class ConfirmationService {
         return id;
     }
 
-    private Long requireConcurrentPending(
+    private Long convergeConcurrentCreate(
             User user,
-            String fingerprint,
-            String conflictHash,
-            Long targetVersion
+            String title,
+            Instant startAt,
+            Instant endAt,
+            String location,
+            String fingerprint
     ) {
-        ConfirmationRequest pending = confirmationRepository
-                .findPendingCandidateForUpdate(user, fingerprint)
-                .orElseThrow(() -> new IllegalStateException("Concurrent pending confirmation was not found."));
-        boolean current = pending.getExpiresAt().isAfter(Instant.now())
-                && pending.getConflictSnapshotHash().equals(conflictHash)
-                && (targetVersion == null || targetVersion.equals(pending.getTargetScheduleVersion()));
-        if (!current) {
-            throw new IllegalStateException("Concurrent pending confirmation became stale.");
+        for (int attempt = 0; attempt < 3; attempt++) {
+            String latestConflictHash = fingerprintService.conflicts(
+                    scheduleRepository.findConflicts(user, startAt, endAt));
+            ConfirmationRequest pending = confirmationRepository
+                    .findPendingCandidateForUpdate(user, fingerprint).orElse(null);
+            if (pending == null) {
+                Instant now = Instant.now();
+                Long insertedId = pendingInsert.createEvent(
+                        user.getEmail(), title, startAt, endAt, location,
+                        fingerprint, latestConflictHash, now);
+                if (insertedId != null) {
+                    return insertedId;
+                }
+                continue;
+            }
+            if (pending.getExpiresAt().isAfter(Instant.now())
+                    && pending.getConflictSnapshotHash().equals(latestConflictHash)) {
+                return pending.getId();
+            }
+            pending.expire();
+            confirmationRepository.flush();
+            ConfirmationRequest replacement = confirmationRepository.saveAndFlush(
+                    new ConfirmationRequest(
+                            user, title, startAt, endAt, location,
+                            fingerprint, latestConflictHash, Instant.now()));
+            pending.supersedeBy(replacement);
+            return replacement.getId();
         }
-        return pending.getId();
+        throw new IllegalStateException("Concurrent confirmation did not converge after 3 attempts.");
+    }
+
+    private Long convergeConcurrentUpdate(
+            User user,
+            Long targetId,
+            String title,
+            Instant startAt,
+            Instant endAt,
+            String locationAction,
+            String locationValue,
+            String fingerprint
+    ) {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            Schedule latestTarget = scheduleRepository.findByIdAndOwner(targetId, user)
+                    .orElseThrow(ConfirmationTargetGoneException::new);
+            Long latestTargetVersion = latestTarget.getVersion();
+            Instant candidateStart = startAt == null ? latestTarget.getStartAt() : startAt;
+            Instant candidateEnd = endAt == null ? latestTarget.getEndAt() : endAt;
+            String latestConflictHash = fingerprintService.conflicts(
+                    scheduleRepository.findConflictsExcluding(
+                            user, targetId, candidateStart, candidateEnd));
+            ConfirmationRequest pending = confirmationRepository
+                    .findPendingCandidateForUpdate(user, fingerprint).orElse(null);
+            if (pending == null) {
+                Instant now = Instant.now();
+                Long insertedId = pendingInsert.updateEvent(
+                        user.getEmail(), targetId, latestTargetVersion, title, startAt, endAt,
+                        locationAction, locationValue, fingerprint, latestConflictHash, now);
+                if (insertedId != null) {
+                    return insertedId;
+                }
+                continue;
+            }
+            if (pending.getExpiresAt().isAfter(Instant.now())
+                    && latestTargetVersion.equals(pending.getTargetScheduleVersion())
+                    && pending.getConflictSnapshotHash().equals(latestConflictHash)) {
+                return pending.getId();
+            }
+            pending.expire();
+            confirmationRepository.flush();
+            ConfirmationRequest replacement = confirmationRepository.saveAndFlush(
+                    ConfirmationRequest.update(
+                            user, targetId, latestTargetVersion, title, startAt, endAt,
+                            locationAction, locationValue, fingerprint,
+                            latestConflictHash, Instant.now()));
+            pending.supersedeBy(replacement);
+            return replacement.getId();
+        }
+        throw new IllegalStateException("Concurrent confirmation did not converge after 3 attempts.");
     }
 
     public void detachPendingUpdates(Long scheduleId) {
