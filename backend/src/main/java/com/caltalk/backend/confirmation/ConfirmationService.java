@@ -33,19 +33,22 @@ public class ConfirmationService {
     private final CurrentScheduleUserService currentUserService;
     private final ScheduleRepository scheduleRepository;
     private final ScheduleChangeHistoryRepository historyRepository;
+    private final PendingConfirmationInsert pendingInsert;
 
     public ConfirmationService(
             ConfirmationRequestRepository confirmationRepository,
             ConfirmationFingerprintService fingerprintService,
             CurrentScheduleUserService currentUserService,
             ScheduleRepository scheduleRepository,
-            ScheduleChangeHistoryRepository historyRepository
+            ScheduleChangeHistoryRepository historyRepository,
+            PendingConfirmationInsert pendingInsert
     ) {
         this.confirmationRepository = confirmationRepository;
         this.fingerprintService = fingerprintService;
         this.currentUserService = currentUserService;
         this.scheduleRepository = scheduleRepository;
         this.historyRepository = historyRepository;
+        this.pendingInsert = pendingInsert;
     }
 
     public Long createPending(
@@ -75,6 +78,17 @@ public class ConfirmationService {
         if (existing != null) {
             existing.expire();
             confirmationRepository.flush();
+        }
+
+        if (existing == null) {
+            Instant now = Instant.now();
+            Long insertedId = pendingInsert.createEvent(
+                    user.getEmail(), title, startAt, endAt, location,
+                    candidateFingerprint, conflictHash, now);
+            if (insertedId != null) {
+                return insertedId;
+            }
+            return requireConcurrentPending(user, candidateFingerprint, conflictHash, null);
         }
 
         ConfirmationRequest confirmation = new ConfirmationRequest(
@@ -137,6 +151,16 @@ public class ConfirmationService {
             existing.expire();
             confirmationRepository.flush();
         }
+        if (existing == null) {
+            Instant now = Instant.now();
+            Long insertedId = pendingInsert.updateEvent(
+                    user.getEmail(), targetId, targetVersion, title, startAt, endAt,
+                    locationAction, locationValue, fingerprint, conflictHash, now);
+            if (insertedId != null) {
+                return insertedId;
+            }
+            return requireConcurrentPending(user, fingerprint, conflictHash, targetVersion);
+        }
         ConfirmationRequest confirmation = ConfirmationRequest.update(
                 user, targetId, targetVersion, title, startAt, endAt,
                 locationAction, locationValue, fingerprint, conflictHash, Instant.now());
@@ -145,6 +169,24 @@ public class ConfirmationService {
             existing.supersedeBy(confirmation);
         }
         return id;
+    }
+
+    private Long requireConcurrentPending(
+            User user,
+            String fingerprint,
+            String conflictHash,
+            Long targetVersion
+    ) {
+        ConfirmationRequest pending = confirmationRepository
+                .findPendingCandidateForUpdate(user, fingerprint)
+                .orElseThrow(() -> new IllegalStateException("Concurrent pending confirmation was not found."));
+        boolean current = pending.getExpiresAt().isAfter(Instant.now())
+                && pending.getConflictSnapshotHash().equals(conflictHash)
+                && (targetVersion == null || targetVersion.equals(pending.getTargetScheduleVersion()));
+        if (!current) {
+            throw new IllegalStateException("Concurrent pending confirmation became stale.");
+        }
+        return pending.getId();
     }
 
     public void detachPendingUpdates(Long scheduleId) {

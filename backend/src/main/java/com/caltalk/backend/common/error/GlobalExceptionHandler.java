@@ -19,6 +19,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import com.caltalk.backend.schedule.ScheduleConflictResponse;
 
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -45,12 +47,36 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleUnreadableRequest(
             HttpMessageNotReadableException exception
     ) {
+        if (hasCause(exception, UnrecognizedPropertyException.class)
+                || hasCause(exception, IllegalArgumentException.class)) {
+            return errorResponse(
+                    HttpStatus.UNPROCESSABLE_CONTENT,
+                    "VALIDATION_ERROR",
+                    VALIDATION_MESSAGE,
+                    List.of(new FieldErrorResponse(
+                            "request",
+                            "UNKNOWN_FIELD",
+                            "The request contains a field outside the API contract."
+                    ))
+            );
+        }
         return errorResponse(
                 HttpStatus.UNPROCESSABLE_CONTENT,
                 "VALIDATION_ERROR",
                 VALIDATION_MESSAGE,
                 List.of()
         );
+    }
+
+    private boolean hasCause(Throwable exception, Class<? extends Throwable> causeType) {
+        Throwable current = exception;
+        while (current != null) {
+            if (causeType.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @ExceptionHandler(PasswordMismatchException.class)
