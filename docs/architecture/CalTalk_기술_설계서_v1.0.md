@@ -88,6 +88,7 @@ common 제한 원칙: (1) 두 개 이상 모듈에서 실제 재사용이 확인
 로그아웃은 POST /api/v1/auth/logout을 사용한다. 인증된 사용자용 API이지만 유효한 CSRF 토큰을 제시한 미인증 요청도 멱등적으로 처리하여 인증 여부와 관계없이 HTTP 204 No Content를 반환하고 로그인 상태를 노출하지 않는다. 현재 세션만 종료하며 다른 사용자나 다른 세션에는 영향을 주지 않는다.
 현재 사용자 조회는 GET /api/v1/users/me를 사용한다. CALTALK_SESSION으로 인증된 Spring Security Authentication의 principal에서 정규화 이메일을 얻고 users를 다시 조회하며, 클라이언트가 ID·이메일을 요청 파라미터나 본문으로 지정할 수 없다. 성공 응답은 email·timezone·createdAt만 포함하고 브라우저 새로고침과 앱 초기 진입의 인증 상태 복원 기준으로 사용한다.
 현재 사용자 시간대 변경은 PATCH /api/v1/users/me를 사용한다. 공개 경로가 아닌 세션 인증·CSRF 보호 대상이며 요청 본문에는 timezone 하나만 받는다. 인증 principal로 현재 사용자를 다시 조회한 뒤 users.timezone만 변경하고 GET /api/v1/users/me와 동일한 응답 구조를 반환한다.
+회원 탈퇴는 DELETE /api/v1/users/me를 사용한다. 공개 경로가 아닌 세션 인증·CSRF 보호 대상이며 currentPassword로 현재 비밀번호를 재검증한 뒤 2.7.9의 현재 V1~V3 삭제 범위를 처리한다.
 
 2.7.3 세션 만료와 로그인 유지 정책
 비활동 기준 세션 유효시간은 12시간이며 요청이 발생하면 만료 시각이 갱신되는 기본 유휴 시간 방식을 사용한다. 별도 자동 로그인·로그인 유지 기능과 로그인 상태 유지 체크박스는 제공하지 않고, 동시 로그인 제한도 이번 MVP에서 적용하지 않는다(확정).
@@ -100,21 +101,27 @@ common 제한 원칙: (1) 두 개 이상 모듈에서 실제 재사용이 확인
 비밀번호는 필수이며 8자 이상 64자 이하로 제한한다. 문자·숫자·특수문자 조합은 강제하지 않지만 공백만으로 구성된 값은 허용하지 않는다. passwordConfirmation은 password와 정확히 일치해야 하며 저장하지 않는다. 저장 시 Spring Security의 기본 강도를 사용하는 BCrypt로 해시하고 password_hash에 해시만 저장한다(기술 설계 확정안).
 
 2.7.6 CSRF 처리(SPA 기준)
-쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더를 사용한다. 회원가입과 로그인의 기존 CSRF 예외 계약은 유지하되 POST 로그아웃과 PATCH /api/v1/users/me는 상태 변경 요청이므로 CSRF 보호 대상이며 예외에 추가하지 않는다. 토큰 누락 또는 불일치는 HTML 리다이렉트 없이 HTTP 403 + FORBIDDEN 공통 오류 JSON으로 응답한다. 로그인 성공 후 세션 교체 시 CSRF 쿠키를 갱신하므로 프런트엔드는 최신 값을 다시 읽는다.
+쿠키 기반 CSRF 저장소(XSRF-TOKEN) + X-XSRF-TOKEN 헤더를 사용한다. 회원가입과 로그인의 기존 CSRF 예외 계약은 유지하되 POST 로그아웃과 PATCH·DELETE /api/v1/users/me는 상태 변경 요청이므로 CSRF 보호 대상이며 예외에 추가하지 않는다. 토큰 누락 또는 불일치는 HTML 리다이렉트 없이 HTTP 403 + FORBIDDEN 공통 오류 JSON으로 응답한다. 로그인 성공 후 세션 교체 시 CSRF 쿠키를 갱신하므로 프런트엔드는 최신 값을 다시 읽는다.
 
 2.7.7 CORS
 운영: 불필요(동일 출처). 개발: http://localhost:5173만 허용.
 
 2.7.7.1 Spring Security 웹 오류 정책
-POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. POST /api/v1/auth/logout은 인증된 사용자용 경로이되 유효한 CSRF 토큰이 있는 미인증 요청을 멱등 성공으로 처리한다. GET·PATCH /api/v1/users/me는 공개 경로에 추가하지 않고 세션 인증을 요구하며 PATCH에는 CSRF 토큰도 요구한다. 인증되지 않은 보호 API 요청과 로그아웃 뒤 기존 세션 쿠키로 보낸 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족과 CSRF 실패는 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
+POST /api/v1/auth/signup, POST /api/v1/auth/login, GET /api/v1/health, /actuator/health, /actuator/health/**는 공개 경로로 유지한다. POST /api/v1/auth/logout은 인증된 사용자용 경로이되 유효한 CSRF 토큰이 있는 미인증 요청을 멱등 성공으로 처리한다. GET·PATCH·DELETE /api/v1/users/me는 공개 경로에 추가하지 않고 세션 인증을 요구하며 PATCH와 DELETE에는 CSRF 토큰도 요구한다. 인증되지 않은 보호 API 요청과 로그아웃 뒤 기존 세션 쿠키로 보낸 보호 API 요청은 HTML 로그인 화면으로 리다이렉트하지 않고 HTTP 401 + UNAUTHORIZED 공통 오류 JSON을 반환하며, 권한 부족과 CSRF 실패는 HTTP 403 + FORBIDDEN 공통 오류 JSON을 반환한다. formLogin 화면은 사용하지 않는다.
 
 2.7.8 사용자 소유권 검증
 모든 일정 조회·수정·삭제 쿼리에 인증 사용자 ID를 강제하고 Application 계층에서 소유자를 재비교한다(확정).
 
 2.7.9 회원 탈퇴와 데이터 삭제
-탈퇴 요청 시 하나의 트랜잭션 안에서 다음을 즉시 하드 삭제한다: 계정(users), 본인 소유 일정(schedules), 관련 변경 이력(schedule_change_history, ON DELETE CASCADE로 자연히 함께 제거됨), 카카오 연결(kakao_user_links), 진행 중 연결 코드(connection_codes), 대기 명령(pending_commands), 확인 요청(confirmation_requests), 해당 사용자 범위의 멱등성 기록(idempotency_records), 로그인 보안 상태(login_security_state, 19절).
+확정 API는 `DELETE /api/v1/users/me`다. 세션으로 인증된 현재 사용자만 호출할 수 있고 CSRF 보호 대상이며, 사용자 ID나 이메일을 요청에서 받지 않는다. 요청 JSON은 `{ "currentPassword": "현재 비밀번호" }`만 허용한다. currentPassword는 필수 문자열이고 공백 전용과 64자 초과를 거부한다. 인증 principal의 정규화 이메일로 사용자를 다시 조회하고 `PasswordEncoder.matches(currentPassword, password_hash)`로 현재 비밀번호를 검증한다. 원문·해시·요청 본문을 로그나 오류 응답에 노출하지 않는다. 누락·공백 전용·형식·길이 오류는 HTTP 422 + VALIDATION_ERROR와 currentPassword fieldError, 불일치는 계정 존재 여부나 내부 상태 차이를 드러내지 않는 HTTP 401 + INVALID_CREDENTIALS와 빈 fieldErrors로 응답한다.
 
-users에는 deleted_at을 두지 않는다(즉시·전면 하드 삭제). 일반 일정 삭제 정책은 11절 참조. 관리형 DB 백업 보관 기간은 호스팅 제공업체 선택 후 개인정보 안내에 반영(보류).
+현재 V1~V3에서 실제 존재하는 사용자 관련 도메인 테이블만 DB 삭제 트랜잭션의 대상으로 확정한다. 순서는 (1) 현재 사용자 조회와 비밀번호 검증, (2) 해당 사용자의 confirmation_requests 전체 삭제 — PENDING·CONSUMED·SUPERSEDED·EXPIRED·CANCELLED를 구분하지 않고 self reference와 target_schedule_id 참조를 먼저 정리, (3) 해당 사용자의 schedules 전체 하드 삭제, (4) schedule_change_history가 `schedule_id ON DELETE CASCADE`로 함께 삭제됐는지 확인, (5) users 삭제, (6) 커밋이다. 다른 사용자의 일정·이력·confirmation은 삭제하지 않는다. 별도 DELETE 이력·감사 로그·soft delete를 추가하지 않으며 users에는 deleted_at을 두지 않는다.
+
+pending_commands, idempotency_records, connection_codes, kakao_user_links, login_security_state는 현재 V1~V3에 존재하지 않으므로 현 구현의 삭제 대상으로 표현하지 않는다. 이 테이블들이 후속 migration으로 추가되면 해당 사용자 소유 행을 회원 탈퇴 DB 트랜잭션에 포함해야 한다는 후속 계약만 유지한다. 외부 카카오 API 호출이나 별도 네트워크 연결 해제는 현재 탈퇴 성공 조건에 포함하지 않는다.
+
+DB 삭제와 HTTP 세션 정리는 하나의 원자적 트랜잭션이 아니다. DB 트랜잭션이 성공적으로 커밋된 뒤 현재 HTTP 세션을 무효화하고 SecurityContext를 제거하며, 응답에서 CALTALK_SESSION을 빈 값·Path=/·Max-Age=0·HttpOnly·SameSite=Lax·환경별 Secure·Domain 미지정으로 삭제한다. 현재 Spring Session 구조에는 사용자별 모든 세션을 안전하게 찾는 별도 인덱스 계약이 없으므로 MVP는 현재 요청 세션만 종료하며, 근거 없이 모든 기기·브라우저 세션 종료를 보장하지 않는다. 다른 세션이 남아 있어도 users 재조회 실패 시 기존 무효 사용자 세션 처리 경로로 세션·SecurityContext·쿠키를 정리하고 401을 반환한다. DB 삭제가 실패하면 커밋하지 않고 세션을 유지한 채 일반화된 HTTP 500 + INTERNAL_SERVER_ERROR를 반환한다. 성공은 HTTP 204 No Content, 빈 본문, `Cache-Control: no-store`이며 사용자 정보나 삭제 건수를 반환하지 않는다. 성공 뒤 같은 세션 쿠키로 보호 API를 호출하면 401 UNAUTHORIZED이고 탈퇴 요청 재시도 역시 204가 아닌 401이다.
+
+관리형 DB 백업 보관 기간은 호스팅 제공업체 선택 후 개인정보 안내에 반영(보류). 일반 일정 삭제 정책은 11절 참조.
 
 상태: 기술 설계 확정안(백업 보관 기간만 보류)
 
@@ -420,7 +427,7 @@ login_security_state
 로그인 시도마다 last_failed_at이 현재 시각으로부터 15분보다 오래됐으면 failed_login_count를 0으로 리셋한 뒤 처리해, 별도 배치 없이 "15분 롤링 윈도" 효과를 낸다.
 실패 시 failed_login_count를 증가시키고 last_failed_at을 갱신, 5회에 도달하면 locked_until = now() + 15분을 설정한다.
 성공 시 failed_login_count = 0, locked_until = NULL로 초기화한다.
-회원 탈퇴 시 다른 사용자 데이터와 함께 하드 삭제한다(2.7.9).
+login_security_state가 후속 migration으로 추가되면 회원 탈퇴 DB 트랜잭션에서 해당 사용자 행을 하드 삭제한다(2.7.9). 현재 V1~V3의 실제 삭제 대상에는 포함되지 않는다.
 2.9.10 Spring Session JDBC 인프라 테이블
 SPRING_SESSION, SPRING_SESSION_ATTRIBUTES — 도메인 테이블과 구분되는 인프라 테이블(2.7.10).
 
@@ -445,7 +452,7 @@ DST	Asia/Seoul은 서머타임 미적용(IANA tz database). 시간 계산은 항
 조회: 소유자 필터 강제
 부분 수정(지속시간 유지): 시작 시각만 바뀌면 기존 지속시간을 유지해 종료 시각 재계산
 삭제: PWA에서 삭제하면 즉시 하드 삭제, status 컬럼 없음, 종속 이력은 ON DELETE CASCADE로 함께 삭제, 삭제된 일정은 조회·충돌·복구 대상으로 남지 않음, 휴지통·복구 기능 없음
-회원 탈퇴 시 트랜잭션 내 전 영역 하드 삭제(2.7.9)
+회원 탈퇴 시 현재 V1~V3 범위와 후속 테이블 범위를 구분해 2.7.9의 순서로 하드 삭제
 충돌 판정과 최종 재검증은 2.8의 절차를 따른다
 상태: 확정
 
@@ -535,7 +542,7 @@ PoC에서 기연결 카카오 사용자가 동일 계정의 새 유효 코드를
 2.18 API 설계 원칙과 오류 모델
 2.18.1 리소스와 엔드포인트
 리소스	엔드포인트
-인증·현재 사용자	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout, GET /api/v1/users/me, PATCH /api/v1/users/me
+인증·현재 사용자	POST /api/v1/auth/signup, POST /api/v1/auth/login, POST /api/v1/auth/logout, GET /api/v1/users/me, PATCH /api/v1/users/me, DELETE /api/v1/users/me
 일정	GET /api/v1/schedules, GET /api/v1/schedules/{scheduleId}, POST /api/v1/schedules, PATCH /api/v1/schedules/{scheduleId}, DELETE /api/v1/schedules/{scheduleId}
 웹 자연어 대화	POST /api/v1/chat/messages
 확인(자연어+PWA 충돌 공통)	POST /api/v1/confirmations/{confirmationId}/approve, POST /api/v1/confirmations/{confirmationId}/cancel
@@ -915,6 +922,7 @@ DB 장애	성공하지 않은 변경을 성공으로 응답하지 않음
 로그인 단위·MVC 테스트: 이메일 정규화·형식·254자 제한, 비밀번호 8~64자, 200 응답 필드와 민감 필드 부재, 422 입력 오류, 계정 부재·비밀번호 불일치·잠금의 동일한 401 INVALID_CREDENTIALS 응답을 검증한다.
 로그인 세션·보안 테스트: CALTALK_SESSION의 HttpOnly·SameSite=Lax·Path=/와 Domain·Max-Age 미지정, 환경별 Secure, 12시간 유휴 만료, 기존 세션 ID 교체, 재로그인, JSON 401 UNAUTHORIZED·403 FORBIDDEN, HTML 리다이렉트 부재를 검증한다.
 로그아웃 테스트: 인증 사용자 요청의 204와 빈 본문, 현재 세션 무효화, SecurityContext 제거, CALTALK_SESSION의 빈 값·Path=/·Max-Age=0·HttpOnly·SameSite=Lax·환경별 Secure·Domain 미지정, 시작 화면 이동, 기존 쿠키의 보호 API 401 UNAUTHORIZED, 유효한 CSRF 토큰을 포함한 미인증 재요청의 204, CSRF 누락·불일치의 403 FORBIDDEN JSON, HTML 리다이렉트 부재, 세션 ID·쿠키 값·토큰 비노출을 검증한다.
+회원 탈퇴 테스트: 인증·CSRF와 currentPassword 필수·공백 전용 거부·64자 경계, 비밀번호 불일치의 401 INVALID_CREDENTIALS·빈 fieldErrors·민감정보 비노출, 현재 V1~V3 기준 confirmation_requests 전체 삭제 후 schedules 하드 삭제·schedule_change_history CASCADE·users 삭제와 다른 사용자 데이터 보존을 검증한다. DB 삭제 실패 시 전체 롤백과 세션 유지를 확인하고, 커밋 성공 뒤에만 현재 HTTP 세션 무효화·SecurityContext 제거·CALTALK_SESSION 삭제가 수행되는지, 204·빈 본문·Cache-Control no-store와 기존 쿠키의 보호 API 및 탈퇴 재요청 401을 검증한다.
 현재 사용자 조회 테스트: 로그인 뒤 GET /api/v1/users/me의 200, email·timezone·UTC createdAt, Cache-Control no-store, id·password·passwordHash·token·refreshToken·sessionId·secret·roles·authorities 부재를 검증한다. 세션 없는 요청의 401 UNAUTHORIZED JSON·Content-Type·리다이렉트와 Location 부재, 로그아웃 뒤 기존 쿠키의 401, users 레코드가 없는 인증 세션의 401·세션 무효화·SecurityContext 제거·CALTALK_SESSION 삭제·사용자 존재 여부 비노출도 검증한다.
 시간대 변경 단위·MVC 테스트: 인증된 PATCH /api/v1/users/me의 200, timezone 단일 요청 필드, trim 적용, 지역 기반 IANA Zone ID 허용, 빈 값·공백·존재하지 않는 ID·KST·GMT+9·UTC+09:00 거부, 422 VALIDATION_ERROR와 timezone의 INVALID_TIMEZONE fieldError, email·createdAt 유지, Cache-Control no-store와 민감 필드 부재를 검증한다.
 시간대 변경 통합·보안 테스트: users.timezone만 변경되고 GET /api/v1/users/me에서 변경값이 확인되는지, 동일 값 재요청도 200인지, email·password_hash·created_at·사용자 ID와 일정 UTC 값 및 DB 스키마가 불변인지 검증한다. 미인증 401 UNAUTHORIZED, 사용자 없는 인증 세션 정리, CSRF 누락·불일치 403 FORBIDDEN, 다른 사용자 변경 불가와 마지막 정상 커밋 값의 최종 반영도 검증한다.
