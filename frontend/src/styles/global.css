@@ -149,10 +149,21 @@ button:disabled {
   background: #28623c;
 }
 
+.compact-button,
+.dialog-primary {
+  width: auto;
+  margin-top: 0;
+}
+
 .secondary-button,
 .button-link {
   color: #214c31;
   background: #e4eee5;
+}
+
+.danger-button {
+  color: #fff;
+  background: #a52d2d;
 }
 
 .button-link {
@@ -244,13 +255,15 @@ button:disabled {
   gap: 1.25rem;
 }
 
-.profile-card,
-.schedule-placeholder {
+.profile-grid {
+  margin-bottom: 1.5rem;
+}
+
+.profile-card {
   padding: 1.75rem;
 }
 
-.profile-card h2,
-.schedule-placeholder h2 {
+.profile-card h2 {
   margin: 0.2rem 0 0.8rem;
 }
 
@@ -258,9 +271,182 @@ button:disabled {
   font-size: 1.25rem;
 }
 
-.schedule-placeholder {
-  border-style: dashed;
-  box-shadow: none;
+.timezone-form {
+  margin-top: 1.4rem;
+}
+
+.timezone-form label {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-weight: 750;
+}
+
+.timezone-controls {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.timezone-controls input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #aebbb1;
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+}
+
+.schedule-section {
+  padding: clamp(1.3rem, 4vw, 2.2rem);
+  border: 1px solid #dce4dc;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.section-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.schedule-list,
+.conflict-list {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.schedule-item + .schedule-item {
+  border-top: 1px solid #dce4dc;
+}
+
+.schedule-item-button {
+  width: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns:
+    minmax(9rem, 0.7fr) minmax(10rem, 1fr) minmax(13rem, 1.2fr) minmax(7rem, 0.6fr)
+    auto;
+  gap: 1rem;
+  align-items: center;
+  border-radius: 0;
+  padding: 1rem 0.5rem;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.schedule-item-button:hover {
+  background: #edf3ed;
+}
+
+.schedule-item-time,
+.schedule-location {
+  color: #5b685f;
+  font-size: 0.9rem;
+}
+
+.schedule-action {
+  color: #28623c;
+  font-weight: 750;
+}
+
+.loading-line,
+.empty-state,
+.inline-state {
+  margin: 1.5rem 0 0;
+  border-radius: 14px;
+  padding: 1rem;
+  background: #edf2ec;
+}
+
+.success-notice,
+.notice {
+  margin: 1rem 0;
+  border: 1px solid #aed1b6;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  color: #245b35;
+  background: #edf8ef;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 1.25rem;
+  background: rgba(20, 31, 24, 0.56);
+}
+
+.dialog {
+  width: min(100%, 620px);
+  max-height: calc(100vh - 2.5rem);
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dialog-header h2 {
+  margin: 0;
+}
+
+.icon-button {
+  min-width: 44px;
+  padding: 0.3rem;
+  font-size: 1.7rem;
+  background: transparent;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.detail-content h3 {
+  margin: 1.2rem 0;
+  font-size: 1.5rem;
+}
+
+.detail-content dl > div {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #e2e7e2;
+}
+
+.detail-content dt {
+  color: #667269;
+  font-weight: 700;
+}
+
+.detail-content dd {
+  margin: 0;
+}
+
+.conflict-list li {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.65rem;
+  border: 1px solid #e1d3b9;
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: #fffaf0;
 }
 
 @media (max-width: 760px) {
@@ -275,6 +461,21 @@ button:disabled {
 
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .section-heading,
+  .timezone-controls {
+    flex-direction: column;
+  }
+
+  .schedule-item-button {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+
+  .timezone-controls input,
+  .timezone-controls button {
+    width: 100%;
   }
 
   .welcome-panel {
