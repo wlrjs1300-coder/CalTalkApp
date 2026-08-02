@@ -1,5 +1,9 @@
 # 보안 및 세션
 
+> React API client는 모든 요청에 `credentials: include`를 사용한다. 상태 변경 전 `GET /api/v1/csrf`로 `XSRF-TOKEN`을 받고 `X-XSRF-TOKEN` header로 전달한다. session ID는 HttpOnly `CALTALK_SESSION`에만 있으며 localStorage와 sessionStorage에 인증 정보를 저장하지 않는다.
+
+실제 Playwright Chromium 테스트는 session cookie 속성, 새로고침 후 JDBC session 복원, CSRF cookie/header 전달과 logout 후 이전 session 재사용 `401`을 검증한다. 테스트는 cookie나 session ID 값을 문서 또는 로그에 출력하지 않는다.
+
 ## 인증 방식
 
 CalTalk는 브라우저 기반 개인 일정 서비스의 현재 범위에 맞춰 서버 세션 인증을 사용한다. 인증 정보를 JavaScript 저장소에 보관하지 않고, 서버가 세션의 만료와 무효화를 통제할 수 있다.
