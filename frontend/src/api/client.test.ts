@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiRequest, resetCsrfBootstrapForTests } from './client';
+import { apiRequest, resetCsrfBootstrapForTests, resolveApiBaseUrl } from './client';
 import { ApiError } from './errors';
 import { readCookie } from './csrf';
 
@@ -29,6 +29,9 @@ describe('API client', () => {
   });
 
   it('parses and URL-decodes an exact cookie name', () => {
+    expect(resolveApiBaseUrl('')).toBe('');
+    expect(resolveApiBaseUrl('https://api.example.com/')).toBe('https://api.example.com');
+    expect(resolveApiBaseUrl(undefined)).toBe('http://localhost:8080');
     expect(readCookie('XSRF-TOKEN', 'theme=dark; XSRF-TOKEN=a%2Bb%2Fc; XSRF-TOKEN-OLD=x')).toBe(
       'a+b/c',
     );

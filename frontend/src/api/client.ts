@@ -2,10 +2,11 @@ import { CSRF_HEADER_NAME, readCsrfToken } from './csrf';
 import { ApiError, toApiError, toNetworkError } from './errors';
 import type { ApiErrorBody } from './types';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(
-  /\/$/,
-  '',
-);
+export function resolveApiBaseUrl(configured: string | undefined): string {
+  return (configured ?? 'http://localhost:8080').trim().replace(/\/$/, '');
+}
+
+const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 let csrfBootstrap: Promise<string> | undefined;
 

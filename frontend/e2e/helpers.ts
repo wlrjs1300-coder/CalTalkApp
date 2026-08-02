@@ -3,6 +3,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { expect } from '@playwright/test';
 
 export const TEST_PASSWORD = 'E2e-password-2026!';
+export const E2E_API_BASE_URL = process.env.E2E_API_BASE_URL ?? 'http://localhost:8080';
 
 export function uniqueEmail(testInfo: TestInfo): string {
   return `e2e-${testInfo.workerIndex}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
@@ -38,23 +39,29 @@ export async function signupAndLogin(page: Page, email: string): Promise<void> {
 export async function cleanupAccount(page: Page, email: string): Promise<void> {
   try {
     if (!page.url().endsWith('/')) await login(page, email);
-    await page.evaluate(async (currentPassword) => {
-      await fetch('http://localhost:8080/api/v1/csrf', { credentials: 'include' });
-      const token = document.cookie
-        .split('; ')
-        .find((entry) => entry.startsWith(`${'XSRF-TOKEN'}${'='}`))
-        ?.split('=')
-        .slice(1)
-        .join('=');
-      if (!token) throw new Error('CSRF token was not issued for account cleanup.');
-      const response = await fetch('http://localhost:8080/api/v1/users/me', {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': decodeURIComponent(token) },
-        body: JSON.stringify({ currentPassword }),
-      });
-      if (!response.ok) throw new Error(`Account cleanup failed with HTTP ${response.status}.`);
-    }, TEST_PASSWORD);
+    await page.evaluate(
+      async ({ apiBaseUrl, currentPassword }) => {
+        await fetch(`${apiBaseUrl}/api/v1/csrf`, { credentials: 'include' });
+        const token = document.cookie
+          .split('; ')
+          .find((entry) => entry.startsWith(`${'XSRF-TOKEN'}${'='}`))
+          ?.split('=')
+          .slice(1)
+          .join('=');
+        if (!token) throw new Error('CSRF token was not issued for account cleanup.');
+        const response = await fetch(`${apiBaseUrl}/api/v1/users/me`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-XSRF-TOKEN': decodeURIComponent(token),
+          },
+          body: JSON.stringify({ currentPassword }),
+        });
+        if (!response.ok) throw new Error(`Account cleanup failed with HTTP ${response.status}.`);
+      },
+      { apiBaseUrl: E2E_API_BASE_URL, currentPassword: TEST_PASSWORD },
+    );
   } catch {
     // Cleanup is best-effort so it never hides the original test failure.
   }
