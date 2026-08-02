@@ -23,7 +23,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -32,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import com.caltalk.backend.auth.AuthenticatedSession;
 import com.caltalk.backend.auth.SignupRequest;
 import com.caltalk.backend.auth.SignupService;
 import com.caltalk.backend.confirmation.ConfirmationRequestRepository;
@@ -59,6 +60,9 @@ class ScheduleQueryIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private SignupService signupService;
@@ -98,7 +102,7 @@ class ScheduleQueryIntegrationTests {
         schedule(other, "다른 사용자", "2026-08-01T00:30:00Z", "2026-08-01T03:30:00Z", null);
 
         mockMvc.perform(get("/api/v1/schedules")
-                        .session(login(EMAIL))
+                        .cookie(login(EMAIL).cookie())
                         .param("from", "2026-08-01T09:00:00+09:00")
                         .param("to", "2026-08-01T13:00:00+09:00"))
                 .andExpect(status().isOk())
@@ -130,7 +134,7 @@ class ScheduleQueryIntegrationTests {
         schedule(owner, "겹치지 않음", "2026-08-12T00:00:00Z", "2026-08-12T01:00:00Z", null);
 
         mockMvc.perform(get("/api/v1/schedules")
-                        .session(login(EMAIL))
+                        .cookie(login(EMAIL).cookie())
                         .param("from", "2026-08-10T00:00:00Z")
                         .param("to", "2026-08-11T00:00:00Z"))
                 .andExpect(status().isOk())
@@ -145,7 +149,7 @@ class ScheduleQueryIntegrationTests {
     @Test
     void returnsEmptyItemsWithOkStatus() throws Exception {
         mockMvc.perform(get("/api/v1/schedules")
-                        .session(login(EMAIL))
+                        .cookie(login(EMAIL).cookie())
                         .param("from", "2026-08-01T00:00:00Z")
                         .param("to", "2026-08-02T00:00:00Z"))
                 .andExpect(status().isOk())
@@ -157,7 +161,7 @@ class ScheduleQueryIntegrationTests {
     @ParameterizedTest
     @MethodSource("invalidRangeRequests")
     void rejectsInvalidRangeParameters(String requestUri, String field, String fieldCode) throws Exception {
-        mockMvc.perform(get(requestUri).session(login(EMAIL)))
+        mockMvc.perform(get(requestUri).cookie(login(EMAIL).cookie()))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
@@ -176,7 +180,7 @@ class ScheduleQueryIntegrationTests {
         );
 
         mockMvc.perform(get("/api/v1/schedules/{scheduleId}", schedule.getId())
-                        .session(login(EMAIL)))
+                        .cookie(login(EMAIL).cookie()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
@@ -204,7 +208,7 @@ class ScheduleQueryIntegrationTests {
                 "2026-08-21T02:00:00Z",
                 null
         );
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
 
         JsonNode missing = notFoundBody(session, Long.MAX_VALUE);
         JsonNode forbidden = notFoundBody(session, otherSchedule.getId());
@@ -221,7 +225,7 @@ class ScheduleQueryIntegrationTests {
     @Test
     void rejectsMalformedScheduleIdAsValidationError() throws Exception {
         mockMvc.perform(get("/api/v1/schedules/not-a-number")
-                        .session(login(EMAIL)))
+                        .cookie(login(EMAIL).cookie()))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
@@ -248,18 +252,18 @@ class ScheduleQueryIntegrationTests {
 
     @Test
     void invalidatesSessionWhenAuthenticatedUserNoLongerExists() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         userRepository.deleteAll();
 
         MvcResult result = mockMvc.perform(get("/api/v1/schedules")
-                        .session(session)
+                        .cookie(session.cookie())
                         .param("from", "2026-08-01T00:00:00Z")
                         .param("to", "2026-08-02T00:00:00Z"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andReturn();
 
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isZero();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE))
                 .startsWith("CALTALK_SESSION=;")
@@ -287,7 +291,7 @@ class ScheduleQueryIntegrationTests {
         return userRepository.findByEmail(email).orElseThrow();
     }
 
-    private MockHttpSession login(String email) throws Exception {
+    private AuthenticatedSession login(String email) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -298,12 +302,12 @@ class ScheduleQueryIntegrationTests {
                                 """.formatted(email, PASSWORD)))
                 .andExpect(status().isOk())
                 .andReturn();
-        return (MockHttpSession) result.getRequest().getSession(false);
+        return AuthenticatedSession.from(result);
     }
 
-    private JsonNode notFoundBody(MockHttpSession session, Long scheduleId) throws Exception {
+    private JsonNode notFoundBody(AuthenticatedSession session, Long scheduleId) throws Exception {
         MvcResult result = mockMvc.perform(get("/api/v1/schedules/{scheduleId}", scheduleId)
-                        .session(session))
+                        .cookie(session.cookie()))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value("SCHEDULE_NOT_FOUND"))

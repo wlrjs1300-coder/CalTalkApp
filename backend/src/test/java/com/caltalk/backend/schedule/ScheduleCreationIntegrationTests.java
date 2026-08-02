@@ -26,7 +26,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -37,6 +36,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import com.caltalk.backend.auth.SignupRequest;
 import com.caltalk.backend.auth.SignupService;
+import com.caltalk.backend.auth.AuthenticatedSession;
 import com.caltalk.backend.confirmation.ConfirmationRequestRepository;
 import com.caltalk.backend.schedule.history.ScheduleChangeHistoryRepository;
 import com.caltalk.backend.user.UserRepository;
@@ -160,7 +160,7 @@ class ScheduleCreationIntegrationTests {
     @MethodSource("invalidRequests")
     void rejectsInvalidScheduleInput(String requestBody, String field, String fieldCode) throws Exception {
         mockMvc.perform(post("/api/v1/schedules")
-                        .session(login(EMAIL))
+                        .cookie(login(EMAIL).cookie())
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
@@ -175,10 +175,10 @@ class ScheduleCreationIntegrationTests {
 
     @Test
     void rejectsOffsetlessTimeAndContractFields() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
 
         mockMvc.perform(post("/api/v1/schedules")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -192,7 +192,7 @@ class ScheduleCreationIntegrationTests {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         mockMvc.perform(post("/api/v1/schedules")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -214,7 +214,7 @@ class ScheduleCreationIntegrationTests {
 
     @Test
     void createsPendingConfirmationAndReturnsSortedOwnConflicts() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         createSchedule(
                 session,
                 "나중 일정",
@@ -270,7 +270,7 @@ class ScheduleCreationIntegrationTests {
 
     @Test
     void approvesConfirmationAndConsumesItAtomically() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         createSchedule(
                 session,
                 "기존",
@@ -307,7 +307,7 @@ class ScheduleCreationIntegrationTests {
 
     @Test
     void supersedesConfirmationWhenConflictSetChanges() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         createSchedule(
                 session,
                 "기존",
@@ -359,16 +359,16 @@ class ScheduleCreationIntegrationTests {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(redirectedUrl(null));
 
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         mockMvc.perform(post("/api/v1/schedules")
-                        .session(session)
+                        .cookie(session.cookie())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
 
         mockMvc.perform(post("/api/v1/confirmations/1/approve")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf().useInvalidToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"conflictAcknowledged\":true}"))
@@ -378,7 +378,7 @@ class ScheduleCreationIntegrationTests {
 
     @Test
     void invalidatesSessionWhenAuthenticatedUserNoLongerExists() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         userRepository.deleteAll();
 
         MvcResult result = createSchedule(
@@ -392,7 +392,7 @@ class ScheduleCreationIntegrationTests {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andReturn();
 
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isZero();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE))
                 .startsWith("CALTALK_SESSION=;")
@@ -401,31 +401,31 @@ class ScheduleCreationIntegrationTests {
     }
 
     private org.springframework.test.web.servlet.ResultActions createSchedule(
-            MockHttpSession session,
+            AuthenticatedSession session,
             String title,
             String startAt,
             String endAt,
             String location
     ) throws Exception {
         return mockMvc.perform(post("/api/v1/schedules")
-                .session(session)
+                .cookie(session.cookie())
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(scheduleJson(title, startAt, endAt, location)));
     }
 
     private org.springframework.test.web.servlet.ResultActions approve(
-            MockHttpSession session,
+            AuthenticatedSession session,
             Long confirmationId
     ) throws Exception {
         return mockMvc.perform(post("/api/v1/confirmations/{confirmationId}/approve", confirmationId)
-                .session(session)
+                .cookie(session.cookie())
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"conflictAcknowledged\":true}"));
     }
 
-    private MockHttpSession login(String email) throws Exception {
+    private AuthenticatedSession login(String email) throws Exception {
         if (!userRepository.existsByEmail(email)) {
             signupService.signup(new SignupRequest(email, PASSWORD, PASSWORD));
         }
@@ -439,7 +439,7 @@ class ScheduleCreationIntegrationTests {
                                 """.formatted(email, PASSWORD)))
                 .andExpect(status().isOk())
                 .andReturn();
-        return (MockHttpSession) result.getRequest().getSession(false);
+        return AuthenticatedSession.from(result);
     }
 
     private Long confirmationId(MvcResult result) throws Exception {

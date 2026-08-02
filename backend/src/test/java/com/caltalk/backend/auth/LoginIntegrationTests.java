@@ -22,9 +22,10 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.session.Session;
+import org.springframework.session.SessionRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
@@ -57,6 +58,9 @@ class LoginIntegrationTests {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private SessionRepository<? extends Session> sessionRepository;
+
     @LocalServerPort
     private int serverPort;
 
@@ -84,7 +88,8 @@ class LoginIntegrationTests {
                 .andExpect(jsonPath("$.secret").doesNotExist())
                 .andReturn();
 
-        MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
+        AuthenticatedSession authenticatedSession = AuthenticatedSession.from(result);
+        Session session = sessionRepository.findById(authenticatedSession.sessionId());
         assertThat(session).isNotNull();
         assertThat(sessionTimeout).isEqualTo("12h");
 
@@ -156,17 +161,17 @@ class LoginIntegrationTests {
         MvcResult firstLogin = login(EMAIL, PASSWORD)
                 .andExpect(status().isOk())
                 .andReturn();
-        MockHttpSession session = (MockHttpSession) firstLogin.getRequest().getSession(false);
-        String previousSessionId = session.getId();
+        AuthenticatedSession session = AuthenticatedSession.from(firstLogin);
+        String previousSessionId = session.sessionId();
 
         MvcResult secondLogin = mockMvc.perform(post("/api/v1/auth/login")
-                        .session(session)
+                        .cookie(session.cookie())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginJson(EMAIL, PASSWORD)))
                 .andExpect(status().isOk())
                 .andReturn();
 
-        assertThat(secondLogin.getRequest().getSession(false).getId())
+        assertThat(AuthenticatedSession.from(secondLogin).sessionId())
                 .isNotEqualTo(previousSessionId);
     }
 
@@ -183,9 +188,9 @@ class LoginIntegrationTests {
         MvcResult login = login(EMAIL, PASSWORD)
                 .andExpect(status().isOk())
                 .andReturn();
-        MockHttpSession session = (MockHttpSession) login.getRequest().getSession(false);
+        AuthenticatedSession session = AuthenticatedSession.from(login);
 
-        mockMvc.perform(get("/api/v1/auth/private").session(session))
+        mockMvc.perform(get("/api/v1/auth/private").cookie(session.cookie()))
                 .andExpect(status().isNotFound());
     }
 

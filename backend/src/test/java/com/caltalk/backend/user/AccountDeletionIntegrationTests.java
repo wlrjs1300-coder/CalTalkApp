@@ -24,7 +24,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -33,10 +32,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import com.caltalk.backend.auth.AuthenticatedSession;
 import com.caltalk.backend.auth.SignupRequest;
 import com.caltalk.backend.auth.SignupService;
-
-import jakarta.servlet.http.Cookie;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -82,8 +80,8 @@ class AccountDeletionIntegrationTests {
         insertHistory(otherScheduleId, otherUserId);
         insertConfirmation(userId, scheduleId, "delete-confirmation");
         insertConfirmation(otherUserId, otherScheduleId, "keep-confirmation");
-        MockHttpSession session = login(EMAIL);
-        String sessionId = session.getId();
+        AuthenticatedSession session = login(EMAIL);
+        String sessionId = session.sessionId();
 
         MvcResult result = deleteAccount(session, PASSWORD)
                 .andExpect(status().isNoContent())
@@ -91,7 +89,7 @@ class AccountDeletionIntegrationTests {
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andReturn();
 
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isZero();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE))
                 .startsWith("CALTALK_SESSION=;")
@@ -107,7 +105,7 @@ class AccountDeletionIntegrationTests {
         assertThat(count("schedule_change_history", "schedule_id", otherScheduleId)).isOne();
 
         mockMvc.perform(get("/api/v1/users/me")
-                        .cookie(new Cookie("CALTALK_SESSION", sessionId)))
+                        .cookie(session.cookie()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
@@ -117,7 +115,7 @@ class AccountDeletionIntegrationTests {
         long userId = userId(EMAIL);
         long scheduleId = insertSchedule(userId, "Keep schedule");
         insertConfirmation(userId, scheduleId, "keep-on-failure");
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
 
         MvcResult result = deleteAccount(session, "wrong-password")
                 .andExpect(status().isUnauthorized())
@@ -125,7 +123,7 @@ class AccountDeletionIntegrationTests {
                 .andExpect(jsonPath("$.fieldErrors").isEmpty())
                 .andReturn();
 
-        assertThat(session.isInvalid()).isFalse();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isOne();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE)).isNull();
         assertThat(count("users", "id", userId)).isOne();
         assertThat(count("schedules", "owner_user_id", userId)).isOne();
@@ -136,7 +134,7 @@ class AccountDeletionIntegrationTests {
 
     @Test
     void rejectsMissingBlankOversizedAndUnknownFields() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         String[] bodies = {
                 "{}",
                 "{\"currentPassword\":null}",
@@ -148,7 +146,7 @@ class AccountDeletionIntegrationTests {
 
         for (String body : bodies) {
             mockMvc.perform(delete("/api/v1/users/me")
-                            .session(session)
+                            .cookie(session.cookie())
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
@@ -157,7 +155,7 @@ class AccountDeletionIntegrationTests {
         }
 
         assertThat(count("users", "id", userId(EMAIL))).isOne();
-        assertThat(session.isInvalid()).isFalse();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isOne();
     }
 
     @Test
@@ -170,15 +168,15 @@ class AccountDeletionIntegrationTests {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(redirectedUrl(null));
 
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         mockMvc.perform(delete("/api/v1/users/me")
-                        .session(session)
+                        .cookie(session.cookie())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(passwordBody(PASSWORD)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         mockMvc.perform(delete("/api/v1/users/me")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf().useInvalidToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(passwordBody(PASSWORD)))
@@ -188,7 +186,7 @@ class AccountDeletionIntegrationTests {
 
     @Test
     void invalidatesAuthenticatedSessionWhenDatabaseUserIsGone() throws Exception {
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
         jdbcTemplate.update("delete from users where email = ?", EMAIL);
 
         MvcResult result = deleteAccount(session, PASSWORD)
@@ -196,7 +194,7 @@ class AccountDeletionIntegrationTests {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andReturn();
 
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isZero();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE))
                 .startsWith("CALTALK_SESSION=;")
@@ -210,14 +208,14 @@ class AccountDeletionIntegrationTests {
         long scheduleId = insertSchedule(userId, "Referenced schedule");
         insertConfirmation(userId, scheduleId, "owned-confirmation");
         insertConfirmation(otherUserId, scheduleId, "blocking-confirmation");
-        MockHttpSession session = login(EMAIL);
+        AuthenticatedSession session = login(EMAIL);
 
         MvcResult result = deleteAccount(session, PASSWORD)
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"))
                 .andReturn();
 
-        assertThat(session.isInvalid()).isFalse();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isOne();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE)).isNull();
         assertThat(count("users", "id", userId)).isOne();
         assertThat(count("schedules", "owner_user_id", userId)).isOne();
@@ -227,17 +225,17 @@ class AccountDeletionIntegrationTests {
     }
 
     private org.springframework.test.web.servlet.ResultActions deleteAccount(
-            MockHttpSession session,
+            AuthenticatedSession session,
             String password
     ) throws Exception {
         return mockMvc.perform(delete("/api/v1/users/me")
-                .session(session)
+                .cookie(session.cookie())
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(passwordBody(password)));
     }
 
-    private MockHttpSession login(String email) throws Exception {
+    private AuthenticatedSession login(String email) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -245,7 +243,7 @@ class AccountDeletionIntegrationTests {
                                 """.formatted(email, PASSWORD)))
                 .andExpect(status().isOk())
                 .andReturn();
-        return (MockHttpSession) result.getRequest().getSession(false);
+        return AuthenticatedSession.from(result);
     }
 
     private long userId(String email) {

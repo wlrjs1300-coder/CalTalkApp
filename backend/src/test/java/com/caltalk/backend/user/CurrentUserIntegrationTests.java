@@ -18,7 +18,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -27,10 +27,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import com.caltalk.backend.auth.AuthenticatedSession;
 import com.caltalk.backend.auth.SignupRequest;
 import com.caltalk.backend.auth.SignupService;
-
-import jakarta.servlet.http.Cookie;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -55,6 +54,9 @@ class CurrentUserIntegrationTests {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void createUser() {
         userRepository.deleteAll();
@@ -63,9 +65,9 @@ class CurrentUserIntegrationTests {
 
     @Test
     void returnsCurrentDatabaseUserWithoutSensitiveFields() throws Exception {
-        MockHttpSession session = login();
+        AuthenticatedSession session = login();
 
-        mockMvc.perform(get("/api/v1/users/me").session(session))
+        mockMvc.perform(get("/api/v1/users/me").cookie(session.cookie()))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
@@ -101,26 +103,25 @@ class CurrentUserIntegrationTests {
 
     @Test
     void returnsUnauthorizedWithOldCookieAfterLogout() throws Exception {
-        MockHttpSession session = login();
-        String sessionId = session.getId();
+        AuthenticatedSession session = login();
 
         mockMvc.perform(post("/api/v1/auth/logout")
-                        .session(session)
+                        .cookie(session.cookie())
                         .with(csrf()))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/users/me")
-                        .cookie(new Cookie("CALTALK_SESSION", sessionId)))
+                        .cookie(session.cookie()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     @Test
     void invalidatesSessionWhenAuthenticatedUserNoLongerExists() throws Exception {
-        MockHttpSession session = login();
+        AuthenticatedSession session = login();
         userRepository.deleteAll();
 
-        MvcResult result = mockMvc.perform(get("/api/v1/users/me").session(session))
+        MvcResult result = mockMvc.perform(get("/api/v1/users/me").cookie(session.cookie()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
@@ -129,7 +130,7 @@ class CurrentUserIntegrationTests {
                 .andExpect(jsonPath("$.fieldErrors").isEmpty())
                 .andReturn();
 
-        assertThat(session.isInvalid()).isTrue();
+        assertThat(session.databaseRowCount(jdbcTemplate)).isZero();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE))
                 .isNotNull()
@@ -140,7 +141,7 @@ class CurrentUserIntegrationTests {
                 .doesNotContain(EMAIL, "존재", "찾을 수");
     }
 
-    private MockHttpSession login() throws Exception {
+    private AuthenticatedSession login() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -152,6 +153,6 @@ class CurrentUserIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        return (MockHttpSession) result.getRequest().getSession(false);
+        return AuthenticatedSession.from(result);
     }
 }
