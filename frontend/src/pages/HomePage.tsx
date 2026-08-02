@@ -4,6 +4,8 @@ import { logout } from '../api/auth';
 import { ApiError } from '../api/errors';
 import { AppLayout } from '../components/layout/AppLayout';
 import { currentUserQueryKey, useCurrentUser } from '../features/auth/authQuery';
+import { ScheduleWorkspace } from '../features/schedule/components/ScheduleWorkspace';
+import { TimezoneForm } from '../features/user/TimezoneForm';
 
 export function HomePage() {
   const currentUser = useCurrentUser();
@@ -45,19 +47,22 @@ export function HomePage() {
         </div>
       ) : null}
 
-      <section className="dashboard-grid">
+      <section className="dashboard-grid profile-grid">
         <article className="card profile-card">
           <p className="eyebrow">설정</p>
           <h2>내 시간대</h2>
           <strong>{currentUser.data.timezone}</strong>
-          <p className="muted">시간대 변경 화면은 다음 기능 단계에서 연결합니다.</p>
+          <TimezoneForm current={currentUser.data.timezone} />
         </article>
-        <article className="card schedule-placeholder" aria-disabled="true">
-          <p className="eyebrow">다음 단계</p>
-          <h2>일정 관리</h2>
-          <p>일정 목록과 생성·수정·삭제 화면은 아직 구현되지 않았습니다.</p>
+        <article className="card profile-card">
+          <p className="eyebrow">저장 기준</p>
+          <h2>UTC 절대 시각</h2>
+          <p className="muted">
+            시간대를 바꿔도 저장된 일정 시각은 유지되고 화면 표시만 다시 계산됩니다.
+          </p>
         </article>
       </section>
+      <ScheduleWorkspace timeZone={currentUser.data.timezone} />
     </AppLayout>
   );
 }
