@@ -295,13 +295,13 @@ GET /api/v1/users/me 사용자 정보
 기존 일정의 UTC 절대 저장값은 변경하지 않는다.
 완료 기준: users.timezone만 바뀌고 저장된 일정의 UTC 절대값은 그대로이며 표시와 날짜 구분만 새 시간대 기준으로 갱신된다.
 6.14 SCR-SET-003 — 회원 탈퇴 확인
-경고: 계정, 일정, 변경 이력, 카카오 연결, 연결 코드, 대기 명령, 확인 요청, 사용자 범위 멱등성 기록과 로그인 보안 상태가 즉시 삭제된다.
+경고: 현재 V1~V3 기준 계정, 본인 일정, 일정 변경 이력과 모든 확인 요청이 영구 삭제되며 복구할 수 없다.
 확인 체크박스: 삭제 범위와 비가역성을 명시한다.
 체크 전 “계정과 데이터 삭제” 버튼 비활성화.
-비밀번호 재입력은 요구하지 않는다.
-성공: 자동 로그아웃 후 시작 화면.
-실패: 계정을 유지하고 체크 상태도 유지한 채 오류를 표시한다.
-관련 API: DELETE /api/v1/users/me 화면 명세 제안.
+현재 비밀번호 입력: currentPassword를 필수로 받고 공백 전용과 64자 초과를 허용하지 않는다. 비밀번호는 URL이나 query parameter로 전달하지 않고 DELETE 요청 JSON 본문에만 담으며, 로그·오류 응답·클라이언트 영속 저장소에 남기지 않는다.
+성공: HTTP 204와 Cache-Control no-store를 받은 뒤 인증 상태 및 사용자·일정 캐시를 모두 초기화하고 시작 화면 `/`로 이동한다. 현재 세션과 SecurityContext가 종료되고 CALTALK_SESSION이 삭제되므로 뒤로가기로 보호 화면을 다시 표시하지 않는다.
+실패: 계정과 기존 로그인 상태·캐시를 유지한다. 입력 오류는 currentPassword 필드에 연결하고, 비밀번호 불일치의 401 INVALID_CREDENTIALS와 CSRF 403·일반 서버 오류를 구분하되 계정 존재 여부나 내부 상태를 표시하지 않는다.
+관련 확정 API: DELETE /api/v1/users/me, 요청 본문 `{ "currentPassword": "현재 비밀번호" }`.
 완료 기준: 일부만 삭제된 성공 상태가 발생하지 않는다.
 6.15 SCR-LEGAL-001 — 개인정보 처리 안내
 접근: 로그인 여부와 무관.
@@ -491,10 +491,10 @@ PWA 계정과 일정 자체는 삭제하지 않는다.
 이미 세션이 없어도 유효한 CSRF 토큰이 있으면 같은 204를 반환한다. CSRF 토큰 누락·불일치는 403 FORBIDDEN JSON으로 처리하고 성공 화면 이동을 하지 않는다.
 
 9.18 회원 탈퇴
-사용자가 삭제 범위 체크박스를 확인한다.
-서버가 계정 및 관련 데이터를 한 트랜잭션으로 삭제한다.
-성공 시 세션을 종료하고 시작 화면으로 이동한다.
-서버 오류 시 계정과 데이터는 유지되고 오류만 표시한다.
+사용자가 삭제 범위 체크박스를 확인하고 currentPassword를 입력한 뒤 유효한 CSRF 토큰과 함께 DELETE /api/v1/users/me를 요청한다.
+서버는 현재 비밀번호를 재검증하고 현재 V1~V3의 confirmation_requests, schedules, schedule_change_history(CASCADE), users를 정해진 순서로 하나의 DB 트랜잭션에서 삭제한다. 향후 pending_commands, idempotency_records, connection_codes, kakao_user_links, login_security_state가 실제 migration으로 추가되면 같은 탈퇴 트랜잭션에 포함한다.
+DB 커밋이 성공한 뒤 현재 HTTP 세션과 SecurityContext를 종료하고 CALTALK_SESSION 삭제 응답을 보낸다. DB 트랜잭션과 세션 무효화는 하나의 원자적 작업으로 표현하지 않는다.
+성공 시 204·빈 본문·Cache-Control no-store를 받고 모든 사용자 상태와 일정 캐시를 초기화한 뒤 시작 화면으로 이동한다. 서버 오류 시 DB 삭제는 롤백되고 기존 세션과 캐시를 유지한 채 오류만 표시한다.
 10. 수용 기준
 Given 비로그인 사용자, When 유효한 회원가입을 제출하면, Then 201과 정규화된 email·Asia/Seoul timezone·UTC createdAt을 받고 자동 로그인 없이 로그인 화면으로 이동한다.
 Given 가입 직후, When 로그인 화면에 진입하면, Then 가입 완료 안내가 표시된다.
@@ -517,6 +517,14 @@ Given 로그아웃 성공, When 클라이언트가 응답을 처리하면, Then 
 Given 로그아웃된 기존 세션 쿠키, When 보호 API를 호출하면, Then HTML 리다이렉트 없이 401 UNAUTHORIZED JSON을 받는다.
 Given 세션이 없는 사용자와 유효한 CSRF 토큰, When 로그아웃을 다시 요청하면, Then 로그인 상태를 노출하지 않고 빈 본문의 204를 받는다.
 Given CSRF 토큰이 없거나 일치하지 않는 로그아웃 요청, When 서버가 처리하면, Then 성공으로 간주하지 않고 HTML 리다이렉트 없이 403 FORBIDDEN 공통 JSON을 받는다.
+Given 인증된 사용자와 유효한 CSRF 토큰 및 일치하는 currentPassword, When DELETE /api/v1/users/me를 요청하면, Then 현재 V1~V3의 본인 confirmation·일정·변경 이력·계정만 삭제되고 204·빈 본문·Cache-Control no-store를 받는다.
+Given currentPassword가 누락·공백 전용·64자 초과 또는 문자열이 아님, When 탈퇴를 요청하면, Then 422 VALIDATION_ERROR와 currentPassword fieldError를 받고 데이터와 로그인 상태를 유지한다.
+Given currentPassword가 현재 비밀번호와 불일치, When 탈퇴를 요청하면, Then 계정 상태 차이를 노출하지 않는 401 INVALID_CREDENTIALS와 빈 fieldErrors를 받고 데이터와 로그인 상태를 유지한다.
+Given 탈퇴 요청에 CSRF 토큰이 없거나 일치하지 않음, When 서버가 처리하면, Then 403 FORBIDDEN을 받고 데이터와 로그인 상태를 유지한다.
+Given 탈퇴 DB 삭제 중 하나라도 실패, When 트랜잭션을 종료하면, Then 모든 DB 삭제를 롤백하고 현재 세션과 캐시를 유지한다.
+Given 탈퇴 DB 트랜잭션 커밋 성공, When 서버가 성공 응답을 완료하면, Then 현재 HTTP 세션과 SecurityContext를 종료하고 CALTALK_SESSION 삭제 쿠키를 보내며 클라이언트는 사용자·일정 캐시를 초기화한다.
+Given 탈퇴 성공 뒤 기존 CALTALK_SESSION 쿠키, When GET /api/v1/users/me 또는 보호 API를 호출하면, Then 401 UNAUTHORIZED를 받는다.
+Given 이미 탈퇴가 완료된 요청, When 같은 쿠키로 DELETE /api/v1/users/me를 재요청하면, Then 멱등 204가 아니라 401 UNAUTHORIZED를 받는다.
 Given 오늘 일정이 4건 이상, When 홈을 열면, Then 3건과 전체 보기 액션만 표시된다.
 Given 월간 캘린더, When 스크롤하면, Then 상단 월 이동 바만 고정되고 그리드는 스크롤된다.
 Given 날짜 선택, When 선택이 완료되면, Then 해당 날짜 목록으로 이동한다.
@@ -556,7 +564,7 @@ Given 시간대 변경, When 저장하면, Then UTC 값은 유지되고 사용�
 Given 탈퇴 체크 미선택, When 화면을 보면, Then 삭제 버튼은 비활성화된다.
 Given 탈퇴 처리 오류, When 응답하면, Then 계정과 체크 상태가 유지된다.
 Given 존재하지 않거나 다른 사용자 소유인 일정 URL, When 접근하면, Then 두 경우를 구분하지 않는 404 SCHEDULE_NOT_FOUND 응답을 받는다.
-최종 수용 기준은 61개다.
+최종 수용 기준은 68개다.
 11. 화면별 API 연결
 11.1 확정 API
 POST /api/v1/auth/signup
@@ -574,10 +582,10 @@ POST /api/v1/confirmations/{confirmationId}/approve
 POST /api/v1/confirmations/{confirmationId}/cancel
 POST /api/v1/kakao/link-codes
 POST /api/v1/kakao/links/revoke
-11.2 화면·API 명세 제안
 DELETE /api/v1/users/me
+11.2 화면·API 명세 제안
 GET /api/v1/kakao/link
-중복 제거 후 총 17종(확정 15종, 화면·API 명세 제안 2종)이다.
+중복 제거 후 총 17종(확정 16종, 화면·API 명세 제안 1종)이다.
 화면·UI	액션	API	캐시 무효화 또는 재조회	일정 DB 변경	결과
 SCR-AUTH-001	가입	POST /api/v1/auth/signup	—	없음	users에 정규화 email·BCrypt password_hash·Asia/Seoul timezone·UTC created_at 저장, 201 응답 후 로그인 화면 이동
 SCR-AUTH-002	로그인	POST /api/v1/auth/login	GET /api/v1/users/me 사용자 정보 재조회	없음	200 응답과 CALTALK_SESSION 생성 후 안전한 복귀 경로 또는 홈 이동
@@ -600,7 +608,13 @@ SCR-KAKAO-001	연결 해제	POST /api/v1/kakao/links/revoke	—	—	—
 SCR-SET-001	사용자 정보	GET /api/v1/users/me	Cache-Control no-store	없음	email·timezone·createdAt만 반환
 SCR-SET-001	로그아웃	POST /api/v1/auth/logout	인증 상태와 사용자 캐시 초기화	없음	유효한 CSRF 토큰이면 인증 여부와 무관하게 현재 세션·SecurityContext 종료와 CALTALK_SESSION 삭제 후 204, 시작 화면 이동
 SCR-SET-002	시간대 저장	PATCH /api/v1/users/me	GET /api/v1/users/me 사용자 정보, 홈 화면의 오늘 일정, 월간 캘린더 일정, 선택 날짜 일정 목록, 현재 열려 있는 일정 상세의 표시값을 무효화하거나 다시 조회하고 사용자 시간대 기준으로 날짜·요일·시작 시간·종료 시간·오늘 및 선택 날짜 기준을 다시 계산	없음	200과 email·timezone·createdAt, Cache-Control no-store를 받고 기존 일정의 UTC 절대 저장값을 유지한 채 새 시간대 기준으로 표시 갱신
-SCR-SET-003	탈퇴	DELETE /api/v1/users/me 제안	—	—	—
+SCR-SET-003	탈퇴	DELETE /api/v1/users/me	성공 시 인증 상태와 사용자·일정 캐시 전체 초기화	현재 V1~V3의 confirmation 전체 삭제 후 schedules 하드 삭제·history CASCADE·users 삭제	유효한 currentPassword와 CSRF로 204·빈 본문·Cache-Control no-store, DB 커밋 뒤 현재 세션·SecurityContext 종료와 CALTALK_SESSION 삭제 후 시작 화면 이동
+
+회원 탈퇴 확정 API 계약: `DELETE /api/v1/users/me`는 세션 인증과 CSRF가 필수이며 `{ "currentPassword": "현재 비밀번호" }` JSON 본문만 받는다. currentPassword는 필수 문자열이고 공백 전용과 64자 초과를 거부한다. 사용자 ID·이메일을 요청으로 받지 않고 비밀번호 원문을 URL·query parameter·로그·오류 응답·영속 클라이언트 상태에 남기지 않는다. 입력 검증 실패는 422 VALIDATION_ERROR와 currentPassword fieldError, 비밀번호 불일치는 401 INVALID_CREDENTIALS와 빈 fieldErrors, 미인증은 401 UNAUTHORIZED, CSRF 실패는 403 FORBIDDEN이다.
+
+현재 V1~V3의 DB 삭제 순서는 현재 사용자와 비밀번호 검증 → 해당 사용자의 모든 confirmation_requests 삭제 → 해당 사용자의 schedules 하드 삭제 → schedule_change_history의 ON DELETE CASCADE 확인 → users 삭제 → 커밋이다. 다른 사용자 데이터는 유지한다. pending_commands·idempotency_records·connection_codes·kakao_user_links·login_security_state는 현재 migration에 없으므로 현 삭제 대상으로 표현하지 않고, 실제 추가될 경우 같은 탈퇴 트랜잭션에 포함할 후속 계약으로 둔다. soft delete·탈퇴 감사 로그·외부 카카오 API 호출은 추가하지 않는다.
+
+DB 커밋 뒤 현재 HTTP 세션 무효화 → SecurityContext 제거 → CALTALK_SESSION 삭제 응답 순으로 처리한다. DB 트랜잭션과 세션 정리는 하나의 원자적 작업이 아니며, DB 실패 시 삭제를 롤백하고 세션을 유지한다. 현재 Spring Session 구조에서 모든 기기 세션 종료를 보장하지 않고 현재 요청 세션만 종료하며, 남은 세션은 users 재조회 실패 시 기존 무효 사용자 세션 처리로 정리한다. 성공은 204 No Content, 빈 본문, Cache-Control no-store이고 사용자 정보·ID·삭제 건수는 반환하지 않는다. 성공 뒤 기존 쿠키의 보호 API와 탈퇴 재요청은 401이다.
 
 11.3 일정 조회 계약
 기간별 일정 조회는 `GET /api/v1/schedules?from={from}&to={to}` 하나를 홈의 오늘 일정, 월간 캘린더, 선택 날짜 일정 목록에서 공통 사용한다. from과 to는 오프셋을 포함한 필수 ISO-8601 date-time이며 시작 포함·종료 미포함인 `[from, to)`를 뜻한다. from은 to보다 빨라야 하고 서버는 두 값을 UTC Instant로 변환한다. 오프셋 없는 시각, 누락·형식 오류, from >= to는 HTTP 422 + VALIDATION_ERROR와 fieldErrors로 처리하며 관계 오류의 field는 to, reason은 INVALID_TIME_RANGE로 통일한다. 임의의 페이지네이션이나 최대 조회 일수는 추가하지 않고 조회 범위 제한은 후속 결정으로 보류한다.
