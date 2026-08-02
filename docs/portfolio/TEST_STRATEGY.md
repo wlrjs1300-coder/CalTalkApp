@@ -4,13 +4,14 @@
 
 CalTalk은 단위 테스트만으로 통과 여부를 판단하지 않습니다. 도메인 규칙, 실제 PostgreSQL 동작, HTTP 보안 계약, React 사용자 흐름과 실제 브라우저 통합을 서로 다른 계층에서 검증합니다.
 
-기준 커밋 `d20e928`의 현재 결과는 다음과 같습니다.
+기준 커밋 `fdf4c02`의 현재 결과는 다음과 같습니다.
 
 | 계층 | 결과 |
 |---|---:|
 | Backend integration | 96 / 96, 17 suites |
 | Frontend unit/component | 30 / 30, 4 files |
 | Playwright browser E2E | 5 / 5 |
+| Production Compose Playwright E2E | 5 / 5 |
 | npm audit | 0 vulnerabilities |
 
 Backend warning-mode compile과 frontend format, lint, typecheck, build도 성공했습니다.
@@ -176,6 +177,7 @@ npm run e2e
 - Backend 96개, 실패·오류·건너뜀 0
 - Frontend 30개, 실패 0
 - Playwright E2E 5개, 실패 0
+- Production Compose Playwright E2E 5개, 실패 0
 - Uncaught browser pageerror 0
 - npm audit 0 vulnerabilities
 - deprecated compile warning 없음
@@ -183,7 +185,7 @@ npm run e2e
 
 ## 12. 제한사항
 
-- 운영 HTTPS, reverse proxy, Secure cookie와 운영 CORS는 배포 환경에서 재검증해야 합니다.
+- 로컬 production Compose에서 reverse proxy, Secure cookie와 운영 CORS를 검증했으며 실제 HTTPS edge와 공개 origin에서는 재검증해야 합니다.
 - 실제 배포 환경의 부하·장시간 session cleanup 테스트는 포함하지 않습니다.
 - browser E2E는 사용자 핵심 흐름을 담당하며 모든 backend 동시 경쟁을 UI에서 중복 재현하지 않습니다.
 - CI/CD가 아직 구성되지 않아 현재 명령은 로컬에서 실행합니다.
