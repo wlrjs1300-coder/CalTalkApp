@@ -57,5 +57,6 @@ temp/
 # Test and local data
 test-results/
 playwright-report/
+blob-report/
 .local/
 data/local/
