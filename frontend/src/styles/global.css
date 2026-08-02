@@ -1,0 +1,293 @@
+:root {
+  font-family:
+    Inter,
+    Pretendard,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  color: #17221c;
+  background: #f5f7f3;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(191, 220, 181, 0.5), transparent 34rem), #f5f7f3;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+a {
+  color: #28623c;
+  font-weight: 700;
+}
+
+button,
+.button-link {
+  min-height: 44px;
+  border-radius: 12px;
+  border: 0;
+  padding: 0.75rem 1.1rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 3px solid #d0922d;
+  outline-offset: 3px;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 480px);
+  align-items: center;
+  gap: clamp(2rem, 8vw, 8rem);
+  padding: clamp(1.25rem, 5vw, 5rem);
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.auth-intro h1 {
+  max-width: 680px;
+  margin: 0.25rem 0 1rem;
+  font-size: clamp(2.3rem, 6vw, 5.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+}
+
+.auth-intro > p:last-child {
+  max-width: 520px;
+  color: #526158;
+  font-size: 1.1rem;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #dce4dc;
+  border-radius: 24px;
+  box-shadow: 0 18px 50px rgba(42, 70, 51, 0.1);
+}
+
+.auth-card {
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+.auth-card h2,
+.status-card h1 {
+  margin: 0;
+  font-size: 1.9rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.55rem;
+  color: #34704a;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.muted {
+  color: #667269;
+}
+
+.form-field {
+  margin-top: 1.2rem;
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.92rem;
+  font-weight: 750;
+}
+
+.form-field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #aebbb1;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  background: #fff;
+  color: #17221c;
+}
+
+.form-field input[aria-invalid='true'] {
+  border-color: #b63737;
+}
+
+.field-error {
+  margin: 0.4rem 0 0;
+  color: #9b2929;
+  font-size: 0.86rem;
+}
+
+.primary-button {
+  width: 100%;
+  margin-top: 1.5rem;
+  color: #fff;
+  background: #28623c;
+}
+
+.secondary-button,
+.button-link {
+  color: #214c31;
+  background: #e4eee5;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.8rem;
+  text-decoration: none;
+}
+
+.auth-link {
+  margin: 1.4rem 0 0;
+  text-align: center;
+  color: #59675d;
+}
+
+.alert {
+  margin: 1rem 0;
+  border: 1px solid #dfb5b5;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  color: #7c2222;
+  background: #fff2f2;
+}
+
+.centered-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.status-card {
+  max-width: 520px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(1.25rem, 5vw, 4rem);
+  border-bottom: 1px solid #dbe3dc;
+  background: rgba(250, 252, 249, 0.86);
+}
+
+.brand {
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.stage-label {
+  color: #5d6c62;
+  font-size: 0.85rem;
+}
+
+.app-main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(2rem, 6vw, 5rem) clamp(1.25rem, 5vw, 3rem);
+}
+
+.welcome-panel {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.welcome-panel h1 {
+  margin: 0;
+  font-size: clamp(2.1rem, 5vw, 4rem);
+}
+
+.user-email {
+  margin-bottom: 0;
+  color: #536158;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+.profile-card,
+.schedule-placeholder {
+  padding: 1.75rem;
+}
+
+.profile-card h2,
+.schedule-placeholder h2 {
+  margin: 0.2rem 0 0.8rem;
+}
+
+.profile-card strong {
+  font-size: 1.25rem;
+}
+
+.schedule-placeholder {
+  border-style: dashed;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .auth-intro h1 {
+    font-size: 2.6rem;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome-panel {
+    align-items: start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
