@@ -2,7 +2,7 @@
 
 ## 범위와 현재 상태
 
-이 문서는 특정 클라우드 사업자에 종속되지 않는 CalTalk production container 구성을 설명합니다. Docker image와 로컬 production smoke가 검증 대상이며, 실제 도메인·TLS 인증서·관리형 DB·자동 backup·CI/CD는 아직 구성되지 않았습니다.
+이 문서는 특정 클라우드 사업자에 종속되지 않는 CalTalk production container 구성을 설명합니다. Docker image와 로컬 production smoke가 검증 대상이며, 실제 도메인·TLS 인증서·관리형 DB·자동 backup·CI/CD는 아직 구성되지 않았습니다. Render에서는 Compose 전체를 올리지 않고 frontend Web Service, backend Private Service와 managed PostgreSQL을 각각 배포합니다. 구체적인 절차는 [Render 배포 가이드](RENDER_DEPLOYMENT.md)를 참고합니다.
 
 ## 배포 아키텍처
 
@@ -70,6 +70,8 @@ Production profile은 schema validate, Flyway, Spring Session schema 자동 초�
 | 변수 | 시점 | 설명 |
 |---|---|---|
 | `VITE_API_BASE_URL` | build time | API origin. 빈 값이면 same-origin |
+| `PORT` | runtime | Nginx listen port. Render Web Service가 자동 제공 |
+| `BACKEND_ORIGIN` | runtime | backend private origin 또는 host:port |
 
 Vite 환경 변수는 runtime 설정이 아니라 build 결과에 포함됩니다. 이 compose는 same-origin이므로 빈 값으로 build합니다. 별도 API origin을 사용하려면 정확한 HTTPS URL로 image를 다시 build하고 cookie SameSite, credentials, CORS와 CSRF를 함께 검증해야 합니다.
 
