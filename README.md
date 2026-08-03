@@ -241,6 +241,7 @@ E2E orchestration은 PostgreSQL 55432, Redis 56379, backend 8080, frontend 5173�
 - [테스트 전략](docs/portfolio/TEST_STRATEGY.md)
 - [개발 로드맵](docs/portfolio/ROADMAP.md)
 - [배포 준비](docs/portfolio/DEPLOYMENT.md)
+- [Render 배포 가이드](docs/portfolio/RENDER_DEPLOYMENT.md)
 
 ## 배포 및 화면 자료
 
