@@ -28,11 +28,16 @@ export function DeleteScheduleDialog({
         ? '일정을 삭제하지 못했습니다.'
         : undefined;
   return (
-    <DialogShell title="일정 삭제" onClose={onClose} closeDisabled={pending}>
-      <p>
-        <strong>{schedule.title}</strong> 일정을 삭제하시겠습니까?
-      </p>
-      <p className="muted">삭제하면 이 일정의 변경 이력도 함께 제거됩니다.</p>
+    <DialogShell
+      title="이 일정을 삭제할까요?"
+      description="삭제한 일정은 되돌릴 수 없습니다."
+      onClose={onClose}
+      closeDisabled={pending}
+    >
+      <div className="delete-target">
+        <span>삭제할 일정</span>
+        <strong>{schedule.title}</strong>
+      </div>
       {message ? (
         <div className="alert" role="alert">
           {message}
@@ -43,7 +48,7 @@ export function DeleteScheduleDialog({
           취소
         </button>
         <button type="button" className="danger-button" disabled={pending} onClick={onConfirm}>
-          {pending ? '삭제 중…' : '삭제'}
+          {pending ? '삭제 중…' : '일정 삭제'}
         </button>
       </div>
     </DialogShell>

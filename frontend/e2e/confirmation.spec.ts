@@ -37,7 +37,7 @@ test('approves a CREATE_EVENT conflict through the confirmation API', async ({
     const approvalPromise = page.waitForResponse((response) =>
       /\/api\/v1\/confirmations\/\d+\/approve$/u.test(response.url()),
     );
-    await dialog.getByRole('button', { name: '충돌 확인 후 저장' }).click();
+    await dialog.getByRole('button', { name: '그래도 저장' }).click();
     expect((await approvalPromise).status()).toBe(200);
     await expect(page.getByRole('dialog')).toContainText(conflictingTitle);
   } finally {
@@ -73,7 +73,7 @@ test('approves an UPDATE_EVENT conflict and keeps the edited schedule', async ({
     ).toBe(201);
 
     await openSchedule(page, editedTitle);
-    await page.getByRole('dialog').getByRole('button', { name: '수정' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: '일정 수정' }).click();
     const form = page.getByRole('dialog');
     await form.getByLabel('시작').fill('2027-05-10T09:30');
     await form.getByLabel('종료').fill('2027-05-10T10:30');
@@ -82,14 +82,14 @@ test('approves an UPDATE_EVENT conflict and keeps the edited schedule', async ({
         /\/api\/v1\/schedules\/\d+$/u.test(response.url()) &&
         response.request().method() === 'PATCH',
     );
-    await form.getByRole('button', { name: '저장' }).click();
+    await form.getByRole('button', { name: '변경사항 저장' }).click();
     expect((await conflictResponsePromise).status()).toBe(409);
     const conflictDialog = page.getByRole('dialog');
     await expect(conflictDialog).toContainText(existingTitle);
     const approvalPromise = page.waitForResponse((response) =>
       /\/api\/v1\/confirmations\/\d+\/approve$/u.test(response.url()),
     );
-    await conflictDialog.getByRole('button', { name: '충돌 확인 후 저장' }).click();
+    await conflictDialog.getByRole('button', { name: '그래도 저장' }).click();
     expect((await approvalPromise).status()).toBe(200);
     await expect(page.getByRole('dialog')).toContainText(editedTitle);
   } finally {

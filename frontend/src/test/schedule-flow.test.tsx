@@ -101,9 +101,20 @@ describe('schedule workspace', () => {
     let resolveList!: (value: { items: [] }) => void;
     getSchedulesMock.mockReturnValueOnce(new Promise((resolve) => (resolveList = resolve)));
     renderWorkspace();
-    expect(screen.getByText('일정을 불러오는 중…')).toBeVisible();
+    expect(screen.getByRole('status', { name: '일정을 불러오는 중' })).toBeVisible();
     resolveList({ items: [] });
-    expect(await screen.findByText('조회 기간에 등록된 일정이 없습니다.')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '아직 일정이 없습니다' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '첫 일정 만들기' })).toBeVisible();
+  });
+
+  it('moves focus into the dialog and restores it after Escape', async () => {
+    renderWorkspace();
+    const trigger = screen.getByRole('button', { name: '새 일정' });
+    await userEvent.click(trigger);
+    expect(screen.getByRole('button', { name: '닫기' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('renders the backend list order and opens detail', async () => {
@@ -118,7 +129,7 @@ describe('schedule workspace', () => {
     createScheduleMock.mockResolvedValue(detail);
     renderWorkspace();
     await openCreateForm();
-    await userEvent.click(screen.getByRole('button', { name: '저장' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 만들기' }));
     await waitFor(() =>
       expect(createScheduleMock).toHaveBeenCalledWith({
         title: '새 일정',
@@ -143,9 +154,9 @@ describe('schedule workspace', () => {
     approveMock.mockResolvedValue(detail);
     renderWorkspace();
     await openCreateForm();
-    await userEvent.click(screen.getByRole('button', { name: '저장' }));
-    expect(await screen.findByRole('heading', { name: '겹치는 일정 확인' })).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: '충돌 확인 후 저장' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 만들기' }));
+    expect(await screen.findByRole('heading', { name: '겹치는 일정이 있습니다' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '그래도 저장' }));
     expect(approveMock).toHaveBeenCalledWith(91);
     expect(await screen.findByText('충돌을 확인하고 일정을 저장했습니다.')).toBeVisible();
     expect(getScheduleMock).not.toHaveBeenCalled();
@@ -168,10 +179,10 @@ describe('schedule workspace', () => {
       .mockResolvedValueOnce(detail);
     renderWorkspace();
     await openCreateForm();
-    await userEvent.click(screen.getByRole('button', { name: '저장' }));
-    await userEvent.click(await screen.findByRole('button', { name: '충돌 확인 후 저장' }));
-    expect(await screen.findByText(/최신 확인 요청으로 교체/)).toBeVisible();
-    await userEvent.click(screen.getByRole('button', { name: '충돌 확인 후 저장' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 만들기' }));
+    await userEvent.click(await screen.findByRole('button', { name: '그래도 저장' }));
+    expect(await screen.findByText(/최신 내용으로 다시 확인/)).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '그래도 저장' }));
     expect(approveMock).toHaveBeenLastCalledWith(92);
     expect(getScheduleMock).not.toHaveBeenCalled();
   });
@@ -182,11 +193,11 @@ describe('schedule workspace', () => {
     updateScheduleMock.mockResolvedValue({ ...detail, title: '변경된 회의', version: 5 });
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '수정' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 수정' }));
     const title = screen.getByLabelText('제목');
     await userEvent.clear(title);
     await userEvent.type(title, '변경된 회의');
-    await userEvent.click(screen.getByRole('button', { name: '저장' }));
+    await userEvent.click(screen.getByRole('button', { name: '변경사항 저장' }));
     await waitFor(() =>
       expect(updateScheduleMock).toHaveBeenCalledWith(7, { version: 4, title: '변경된 회의' }),
     );
@@ -198,9 +209,9 @@ describe('schedule workspace', () => {
     updateScheduleMock.mockResolvedValue({ ...detail, location: null, version: 5 });
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '수정' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 수정' }));
     await userEvent.clear(screen.getByLabelText('장소 (선택)'));
-    await userEvent.click(screen.getByRole('button', { name: '저장' }));
+    await userEvent.click(screen.getByRole('button', { name: '변경사항 저장' }));
     await waitFor(() =>
       expect(updateScheduleMock).toHaveBeenCalledWith(7, { version: 4, location: null }),
     );
@@ -212,8 +223,8 @@ describe('schedule workspace', () => {
     deleteScheduleMock.mockResolvedValue(undefined);
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '삭제' }));
-    await userEvent.click(screen.getByRole('button', { name: '삭제' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
     expect(deleteScheduleMock).toHaveBeenCalledWith(7, 4);
     expect(await screen.findByText('일정을 삭제했습니다.')).toBeVisible();
   });
@@ -226,8 +237,8 @@ describe('schedule workspace', () => {
     );
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '삭제' }));
-    await userEvent.click(screen.getByRole('button', { name: '삭제' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
+    await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('일정이 변경되었습니다.');
   });
 
@@ -264,11 +275,11 @@ describe('timezone form', () => {
         <TimezoneForm current="Asia/Seoul" />
       </QueryClientProvider>,
     );
-    const input = screen.getByLabelText('표시 시간대');
+    const input = screen.getByLabelText('지역 또는 시간대');
     await userEvent.clear(input);
     await userEvent.type(input, 'Asia/Tokyo');
     await userEvent.click(screen.getByRole('button', { name: '변경' }));
-    expect(await screen.findByText(/표시 시간만 바뀝니다/)).toBeVisible();
+    expect(await screen.findByText(/새 기준으로 표시됩니다/)).toBeVisible();
     expect(queryClient.getQueryData(currentUserQueryKey)).toMatchObject({ timezone: 'Asia/Tokyo' });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: scheduleKeys.all });
   });

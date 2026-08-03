@@ -6,6 +6,8 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { login } from '../api/auth';
 import { ApiError, fieldErrorMap } from '../api/errors';
 import { FormField } from '../components/common/FormField';
+import { CalendarIcon, ClockIcon, WarningIcon } from '../components/common/Icons';
+import { PasswordField } from '../components/common/PasswordField';
 import { currentUserQueryOptions } from '../features/auth/authQuery';
 import { loginSchema, type LoginFormValues } from '../features/auth/schemas';
 
@@ -54,13 +56,40 @@ export function LoginPage() {
   return (
     <main className="auth-page">
       <section className="auth-intro">
-        <p className="eyebrow">CalTalk</p>
-        <h1>일정을 정리하는 첫 화면</h1>
-        <p>로그인하면 서버 세션에서 인증 상태를 복원합니다.</p>
+        <div className="auth-brand">
+          <span className="brand-mark">
+            <CalendarIcon />
+          </span>
+          <span>CalTalk</span>
+        </div>
+        <div className="auth-message">
+          <p className="eyebrow">시간을 더 선명하게</p>
+          <h1>
+            복잡한 일정을
+            <br />
+            한눈에 정리하세요
+          </h1>
+          <p>시간대가 달라도 정확하게, 겹치는 일정은 저장 전에 한 번 더 확인해 드려요.</p>
+        </div>
+        <ul className="auth-benefits" aria-label="CalTalk 주요 기능">
+          <li>
+            <ClockIcon />
+            <span>
+              <strong>정확한 시간 관리</strong>내 시간대에 맞춰 일정을 확인하세요.
+            </span>
+          </li>
+          <li>
+            <WarningIcon />
+            <span>
+              <strong>겹침 사전 확인</strong>놓치기 쉬운 일정 충돌을 알려드려요.
+            </span>
+          </li>
+        </ul>
       </section>
       <section className="card auth-card" aria-labelledby="login-title">
+        <p className="auth-card-kicker">다시 만나 반가워요</p>
         <h2 id="login-title">로그인</h2>
-        <p className="muted">가입한 이메일로 계속하세요.</p>
+        <p className="muted">내 일정을 확인하고 오늘을 계획해 보세요.</p>
         {errorMessage ? (
           <div className="alert" role="alert">
             {errorMessage}
@@ -71,24 +100,30 @@ export function LoginPage() {
             id="email"
             label="이메일"
             type="email"
+            placeholder="name@example.com"
             autoComplete="email"
             error={form.formState.errors.email?.message}
             {...form.register('email')}
           />
-          <FormField
+          <PasswordField
             id="password"
             label="비밀번호"
-            type="password"
+            placeholder="비밀번호를 입력하세요"
             autoComplete="current-password"
             error={form.formState.errors.password?.message}
             {...form.register('password')}
           />
-          <button className="primary-button" type="submit" disabled={mutation.isPending}>
+          <button
+            className="primary-button auth-submit"
+            type="submit"
+            disabled={mutation.isPending}
+            aria-busy={mutation.isPending}
+          >
             {mutation.isPending ? '로그인 중…' : '로그인'}
           </button>
         </form>
         <p className="auth-link">
-          계정이 없나요? <Link to="/signup">회원가입</Link>
+          CalTalk이 처음인가요? <Link to="/signup">새 계정 만들기</Link>
         </p>
       </section>
     </main>

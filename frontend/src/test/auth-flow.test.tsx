@@ -62,6 +62,16 @@ describe('authentication UI', () => {
     expect(loginMock).not.toHaveBeenCalled();
   });
 
+  it('uses user-facing copy and toggles password visibility', async () => {
+    renderLogin();
+    expect(screen.getByRole('heading', { name: /복잡한 일정을/ })).toBeVisible();
+    const password = screen.getByLabelText('비밀번호');
+    expect(password).toHaveAttribute('type', 'password');
+    await userEvent.click(screen.getByRole('button', { name: '비밀번호 표시' }));
+    expect(password).toHaveAttribute('type', 'text');
+    expect(screen.queryByText(/서버 세션|source of truth|UTC 절대 시각/u)).not.toBeInTheDocument();
+  });
+
   it('refetches the current user and navigates after login', async () => {
     loginMock.mockResolvedValue({ email: user.email, timezone: user.timezone });
     currentUserMock.mockResolvedValue(user);

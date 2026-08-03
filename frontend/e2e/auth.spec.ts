@@ -55,7 +55,8 @@ test('signs up, rejects duplicates and bad credentials, restores and ends the se
   const csrfRequestPromise = page.waitForRequest(
     (request) => request.url().endsWith('/api/v1/users/me') && request.method() === 'PATCH',
   );
-  await page.getByLabel('표시 시간대').fill('Asia/Tokyo');
+  await page.getByRole('button', { name: '설정' }).click();
+  await page.getByLabel('지역 또는 시간대').fill('Asia/Tokyo');
   await page.getByRole('button', { name: '변경' }).click();
   const csrfRequest = await csrfRequestPromise;
   expect(csrfRequest.headers()['x-xsrf-token']).toBeTruthy();
@@ -66,6 +67,8 @@ test('signs up, rejects duplicates and bad credentials, restores and ends the se
     secure: expectedSecureCookie,
     sameSite: 'Lax',
   });
+
+  await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: '로그아웃' }).click();
   await expect(page).toHaveURL(/\/login$/u);
