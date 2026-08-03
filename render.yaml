@@ -1,0 +1,54 @@
+services:
+  - type: pserv
+    name: caltalk-backend
+    runtime: docker
+    plan: starter
+    region: singapore
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: DB_URL
+        sync: false
+      - key: DB_USERNAME
+        fromDatabase:
+          name: caltalk-postgres
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: caltalk-postgres
+          property: password
+      - key: SESSION_COOKIE_SECURE
+        value: true
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: JAVA_TOOL_OPTIONS
+        value: -XX:MaxRAMPercentage=75.0
+
+  - type: web
+    name: caltalk-frontend
+    runtime: docker
+    plan: starter
+    region: singapore
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      - key: BACKEND_ORIGIN
+        fromService:
+          type: pserv
+          name: caltalk-backend
+          property: hostport
+
+databases:
+  - name: caltalk-postgres
+    plan: basic-256mb
+    region: singapore
+    databaseName: caltalk
+    user: caltalk
+    ipAllowList: []

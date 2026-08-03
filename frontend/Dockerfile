@@ -10,10 +10,18 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+ENV PORT=8080 \
+    BACKEND_ORIGIN=http://backend:8080 \
+    NGINX_ENVSUBST_FILTER=^(PORT|BACKEND_ORIGIN)$
+
+COPY --chown=101:101 nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --chown=101:101 --chmod=755 docker-entrypoint.sh /usr/local/bin/caltalk-entrypoint.sh
 COPY --from=build --chown=101:101 /workspace/dist /usr/share/nginx/html
 
 USER 101
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
+  CMD wget -q -O /dev/null "http://127.0.0.1:$${PORT:-8080}/healthz" || exit 1
+
+ENTRYPOINT ["/usr/local/bin/caltalk-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

@@ -26,6 +26,7 @@ services:
     image: caltalk-backend:${IMAGE_TAG:-local}
     restart: unless-stopped
     environment:
+      PORT: 8080
       SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-caltalk}
       DB_USERNAME: ${POSTGRES_USER:-caltalk}
@@ -54,6 +55,9 @@ services:
         VITE_API_BASE_URL: ""
     image: caltalk-frontend:${IMAGE_TAG:-local}
     restart: unless-stopped
+    environment:
+      PORT: 8080
+      BACKEND_ORIGIN: http://backend:8080
     depends_on:
       backend:
         condition: service_healthy
