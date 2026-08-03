@@ -1,5 +1,5 @@
 import type { ScheduleListItem as ScheduleItem } from '../../../api/schedule';
-import { formatInTimezone } from '../dateTime';
+import { ClockIcon, MapPinIcon } from '../../../components/common/Icons';
 
 interface ScheduleListItemProps {
   schedule: ScheduleItem;
@@ -8,17 +8,45 @@ interface ScheduleListItemProps {
 }
 
 export function ScheduleListItem({ schedule, timeZone, onSelect }: ScheduleListItemProps) {
+  const start = new Date(schedule.startAt);
+  const date = new Intl.DateTimeFormat('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+    timeZone,
+  }).format(start);
+  const time = new Intl.DateTimeFormat('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone,
+  }).format(start);
+  const endTime = new Intl.DateTimeFormat('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone,
+  }).format(new Date(schedule.endAt));
   return (
     <li className="schedule-item">
       <button type="button" className="schedule-item-button" onClick={() => onSelect(schedule.id)}>
-        <span className="schedule-item-time">{formatInTimezone(schedule.startAt, timeZone)}</span>
-        <strong>{schedule.title}</strong>
-        <span>
-          {formatInTimezone(schedule.startAt, timeZone)} –{' '}
-          {formatInTimezone(schedule.endAt, timeZone)}
+        <span className="schedule-date">{date}</span>
+        <span className="schedule-main">
+          <strong>{schedule.title}</strong>
+          <span className="schedule-meta">
+            <span>
+              <ClockIcon />
+              {time}–{endTime}
+            </span>
+            <span>
+              <MapPinIcon />
+              {schedule.location ?? '장소 미정'}
+            </span>
+          </span>
         </span>
-        {schedule.location ? <span className="schedule-location">{schedule.location}</span> : null}
-        <span className="schedule-action">상세 보기</span>
+        <span className="schedule-action" aria-hidden="true">
+          ›
+        </span>
       </button>
     </li>
   );

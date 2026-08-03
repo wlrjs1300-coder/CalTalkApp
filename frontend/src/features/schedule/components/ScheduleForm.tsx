@@ -56,10 +56,17 @@ export function ScheduleForm({
   return (
     <DialogShell
       title={mode === 'create' ? '새 일정' : '일정 수정'}
+      description={
+        mode === 'create'
+          ? '새로운 약속의 날짜와 시간을 입력하세요.'
+          : '변경할 내용을 확인하고 저장하세요.'
+      }
       onClose={onClose}
       closeDisabled={pending}
     >
-      <p className="muted">입력 시간은 {timeZone} 기준이며 서버에는 UTC로 저장됩니다.</p>
+      <div className="timezone-context">
+        표시 시간대 · <strong>{timeZone}</strong>
+      </div>
       {generalError ? (
         <div className="alert" role="alert">
           {generalError}
@@ -69,26 +76,30 @@ export function ScheduleForm({
         <FormField
           id="schedule-title"
           label="제목"
+          placeholder="예: 프로젝트 주간 회의"
           error={form.formState.errors.title?.message}
           {...form.register('title')}
         />
-        <FormField
-          id="schedule-start"
-          label="시작"
-          type="datetime-local"
-          error={form.formState.errors.startAt?.message}
-          {...form.register('startAt')}
-        />
-        <FormField
-          id="schedule-end"
-          label="종료"
-          type="datetime-local"
-          error={form.formState.errors.endAt?.message}
-          {...form.register('endAt')}
-        />
+        <div className="form-row">
+          <FormField
+            id="schedule-start"
+            label="시작"
+            type="datetime-local"
+            error={form.formState.errors.startAt?.message}
+            {...form.register('startAt')}
+          />
+          <FormField
+            id="schedule-end"
+            label="종료"
+            type="datetime-local"
+            error={form.formState.errors.endAt?.message}
+            {...form.register('endAt')}
+          />
+        </div>
         <FormField
           id="schedule-location"
           label="장소 (선택)"
+          placeholder="예: 3층 회의실 또는 화상 회의"
           error={form.formState.errors.location?.message}
           {...form.register('location')}
         />
@@ -97,7 +108,7 @@ export function ScheduleForm({
             취소
           </button>
           <button type="submit" className="primary-button dialog-primary" disabled={pending}>
-            {pending ? '저장 중…' : '저장'}
+            {pending ? '저장 중…' : mode === 'create' ? '일정 만들기' : '변경사항 저장'}
           </button>
         </div>
       </form>

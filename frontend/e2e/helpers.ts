@@ -25,7 +25,7 @@ export async function signup(page: Page, email: string): Promise<void> {
 export async function login(page: Page, email: string, password = TEST_PASSWORD): Promise<void> {
   await page.goto('/login');
   await page.getByLabel('이메일').fill(email);
-  await page.getByLabel('비밀번호').fill(password);
+  await page.getByLabel('비밀번호', { exact: true }).fill(password);
   await page.getByRole('button', { name: '로그인' }).click();
   await expect(page).toHaveURL(/\/$/u);
   await expect(page.getByText(email)).toBeVisible();
@@ -81,7 +81,7 @@ export async function createSchedule(
     (response) =>
       response.url().endsWith('/api/v1/schedules') && response.request().method() === 'POST',
   );
-  await dialog.getByRole('button', { name: '저장' }).click();
+  await dialog.getByRole('button', { name: '일정 만들기' }).click();
   return responsePromise;
 }
 

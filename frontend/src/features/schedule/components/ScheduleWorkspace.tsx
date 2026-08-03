@@ -156,8 +156,7 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
           setConflict({
             ...replacement,
             replacementCount: conflict.replacementCount + 1,
-            notice:
-              '일정 상태가 변경되어 최신 확인 요청으로 교체했습니다. 내용을 다시 확인해 주세요.',
+            notice: '일정 정보가 바뀌어 최신 내용으로 다시 확인이 필요합니다.',
           });
         }
       },
@@ -177,12 +176,12 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
     <section className="schedule-section" aria-labelledby="schedule-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Schedule</p>
-          <h2 id="schedule-heading">내 일정</h2>
-          <p className="muted">현재 기준 1년 전부터 2년 후까지 조회합니다.</p>
+          <p className="eyebrow">나의 캘린더</p>
+          <h2 id="schedule-heading">다가오는 일정</h2>
+          <p className="muted">가까운 일정부터 시간 순서로 확인하세요.</p>
         </div>
         <button type="button" className="primary-button compact-button" onClick={openCreate}>
-          새 일정
+          <span aria-hidden="true">＋</span> 새 일정
         </button>
       </div>
       {notice ? (
@@ -197,6 +196,7 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
         error={schedules.error}
         onRetry={() => void schedules.refetch()}
         onSelect={setSelectedId}
+        onCreate={openCreate}
       />
 
       {selectedId !== null && !formState && !deleteTarget ? (

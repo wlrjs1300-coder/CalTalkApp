@@ -19,7 +19,7 @@ export function TimezoneForm({ current }: TimezoneFormProps) {
     onSuccess: async (user) => {
       queryClient.setQueryData(currentUserQueryKey, user);
       await queryClient.invalidateQueries({ queryKey: scheduleKeys.all });
-      setNotice('시간대를 변경했습니다. 일정의 UTC 값은 유지하고 표시 시간만 바뀝니다.');
+      setNotice('표시 시간대를 변경했습니다. 모든 일정의 시간이 새 기준으로 표시됩니다.');
     },
   });
   const fieldError = fieldErrorMap(mutation.error).timezone;
@@ -35,7 +35,7 @@ export function TimezoneForm({ current }: TimezoneFormProps) {
         mutation.mutate();
       }}
     >
-      <label htmlFor="timezone">표시 시간대</label>
+      <label htmlFor="timezone">지역 또는 시간대</label>
       <div className="timezone-controls">
         <input
           id="timezone"
@@ -43,6 +43,7 @@ export function TimezoneForm({ current }: TimezoneFormProps) {
           value={timezone}
           aria-invalid={Boolean(fieldError)}
           aria-describedby={fieldError ? 'timezone-error' : undefined}
+          placeholder="예: Asia/Seoul"
           onChange={(event) => setTimezone(event.target.value)}
         />
         <datalist id="timezone-options">
