@@ -1,6 +1,7 @@
 package com.caltalk.backend.schedule;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonSetter;
@@ -12,11 +13,13 @@ public class UpdateScheduleRequest {
     private OffsetDateTime endAt;
     private String location;
     private Long version;
+    private List<Integer> reminderMinutes;
     private boolean titlePresent;
     private boolean startAtPresent;
     private boolean endAtPresent;
     private boolean locationPresent;
     private boolean versionPresent;
+    private boolean reminderMinutesPresent;
 
     @JsonSetter("title")
     public void setTitle(String title) {
@@ -48,6 +51,12 @@ public class UpdateScheduleRequest {
         this.version = version;
     }
 
+    @JsonSetter("reminderMinutes")
+    public void setReminderMinutes(List<Integer> reminderMinutes) {
+        reminderMinutesPresent = true;
+        this.reminderMinutes = reminderMinutes;
+    }
+
     @JsonAnySetter
     public void rejectUnknownField(String field, Object value) {
         throw new IllegalArgumentException("Unsupported request field.");
@@ -63,4 +72,6 @@ public class UpdateScheduleRequest {
     public boolean endAtPresent() { return endAtPresent; }
     public boolean locationPresent() { return locationPresent; }
     public boolean versionPresent() { return versionPresent; }
+    public List<Integer> reminderMinutes() { return reminderMinutes; }
+    public boolean reminderMinutesPresent() { return reminderMinutesPresent; }
 }

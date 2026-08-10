@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { login, logout } from '../api/auth';
+import { getSocialProviders, login, logout } from '../api/auth';
 import { ApiError } from '../api/errors';
 import { getCurrentUser } from '../api/user';
 import { createQueryClient } from '../app/providers/queryClient';
@@ -11,11 +11,15 @@ import { currentUserQueryKey } from '../features/auth/authQuery';
 import { ProtectedRoute, PublicOnlyRoute } from '../features/auth/routeGuards';
 import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
+import { SignupPage } from '../pages/SignupPage';
+import { WelcomePage } from '../pages/WelcomePage';
 
 vi.mock('../api/auth', () => ({
   login: vi.fn(),
   logout: vi.fn(),
   signup: vi.fn(),
+  getSocialProviders: vi.fn(),
+  socialLoginUrl: (provider: string) => `http://localhost:8080/oauth2/authorization/${provider}`,
 }));
 
 vi.mock('../api/user', () => ({
@@ -26,6 +30,7 @@ vi.mock('../api/user', () => ({
 const loginMock = vi.mocked(login);
 const logoutMock = vi.mocked(logout);
 const currentUserMock = vi.mocked(getCurrentUser);
+const socialProvidersMock = vi.mocked(getSocialProviders);
 const user = {
   email: 'member@example.com',
   timezone: 'Asia/Seoul',
@@ -46,11 +51,42 @@ function renderLogin() {
   );
 }
 
+function renderSignup() {
+  const queryClient = createQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/signup']}>
+        <Routes>
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/login" element={<h1>로그인 화면</h1>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 describe('authentication UI', () => {
   beforeEach(() => {
     loginMock.mockReset();
     logoutMock.mockReset();
     currentUserMock.mockReset();
+    socialProvidersMock.mockReset();
+    socialProvidersMock.mockResolvedValue([]);
+  });
+
+  it('introduces CalTalk before authentication on the first visit', async () => {
+    render(
+      <MemoryRouter initialEntries={['/welcome']}>
+        <Routes>
+          <Route path="/welcome" element={<WelcomePage />} />
+          <Route path="/login" element={<h1>로그인 화면</h1>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('heading', { name: /카톡으로 간편하게/ })).toBeVisible();
+    await userEvent.click(screen.getByRole('link', { name: 'CalTalk 시작하기' }));
+    expect(await screen.findByRole('heading', { name: '로그인 화면' })).toBeVisible();
   });
 
   it('shows client validation errors without submitting login', async () => {
@@ -70,6 +106,56 @@ describe('authentication UI', () => {
     await userEvent.click(screen.getByRole('button', { name: '비밀번호 표시' }));
     expect(password).toHaveAttribute('type', 'text');
     expect(screen.queryByText(/서버 세션|source of truth|UTC 절대 시각/u)).not.toBeInTheDocument();
+  });
+
+  it('offers honest account recovery guidance', async () => {
+    renderLogin();
+
+    await userEvent.click(screen.getByRole('button', { name: '이메일 찾기' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('가입할 때 사용한 이메일');
+    await userEvent.click(screen.getByRole('button', { name: '확인' }));
+
+    await userEvent.click(screen.getByRole('button', { name: '비밀번호 찾기' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      '비밀번호 재설정 기능을 준비하고 있습니다',
+    );
+  });
+
+  it('shows the configured social login providers', async () => {
+    socialProvidersMock.mockResolvedValue([
+      { id: 'kakao', name: '카카오' },
+      { id: 'naver', name: '네이버' },
+      { id: 'google', name: 'Google' },
+    ]);
+    renderLogin();
+
+    expect(await screen.findByRole('link', { name: '카카오로 로그인' })).toHaveAttribute(
+      'href',
+      'http://localhost:8080/oauth2/authorization/kakao',
+    );
+    expect(screen.getByRole('link', { name: '네이버로 로그인' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Google로 로그인' })).toBeVisible();
+  });
+
+  it('shows password requirements while signing up', async () => {
+    renderSignup();
+
+    await userEvent.type(screen.getByLabelText('비밀번호', { exact: true }), 'password123');
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.matches('.password-checks > .is-complete') === true &&
+          element.textContent?.includes('8~64자') === true,
+      ),
+    ).toBeVisible();
+    await userEvent.type(screen.getByLabelText('비밀번호 확인'), 'password123');
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.matches('.password-checks > .is-complete') === true &&
+          element.textContent?.includes('비밀번호 일치') === true,
+      ),
+    ).toBeVisible();
   });
 
   it('refetches the current user and navigates after login', async () => {
@@ -100,7 +186,7 @@ describe('authentication UI', () => {
     );
   });
 
-  it('redirects an unauthenticated protected route to login', async () => {
+  it('redirects an unauthenticated visitor to the welcome screen', async () => {
     currentUserMock.mockRejectedValue(
       new ApiError({ status: 401, code: 'UNAUTHORIZED', message: '로그인이 필요합니다.' }),
     );
@@ -112,13 +198,13 @@ describe('authentication UI', () => {
             <Route element={<ProtectedRoute />}>
               <Route path="/" element={<h1>보호 화면</h1>} />
             </Route>
-            <Route path="/login" element={<h1>로그인 화면</h1>} />
+            <Route path="/welcome" element={<h1>CalTalk 소개</h1>} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole('heading', { name: '로그인 화면' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'CalTalk 소개' })).toBeVisible();
   });
 
   it('redirects an authenticated user away from an auth page', async () => {
@@ -150,7 +236,7 @@ describe('authentication UI', () => {
         <MemoryRouter initialEntries={['/']}>
           <Routes>
             <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<h1>로그인 화면</h1>} />
+            <Route path="/welcome" element={<h1>CalTalk 소개</h1>} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -158,7 +244,7 @@ describe('authentication UI', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '로그아웃' }));
 
-    expect(await screen.findByRole('heading', { name: '로그인 화면' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'CalTalk 소개' })).toBeVisible();
     await waitFor(() =>
       expect(removeQueries).toHaveBeenCalledWith({ queryKey: currentUserQueryKey }),
     );

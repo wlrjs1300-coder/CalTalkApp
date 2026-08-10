@@ -10,7 +10,7 @@ CalTalk은 사용자 시간대를 기준으로 일정을 관리하고, 겹치는
 
 ### Backend
 
-- 이메일 회원가입, 로그인, 로그아웃
+- 이메일 회원가입·로그인과 Google·카카오·네이버 간편 로그인, 로그아웃
 - 현재 사용자 조회, 시간대 변경, 비밀번호 확인 후 회원 탈퇴
 - 일정 생성, 기간 조회, 상세 조회, 수정, 삭제
 - 일정 충돌 감지와 `CREATE_EVENT`·`UPDATE_EVENT` confirmation
@@ -136,6 +136,25 @@ Frontend는 session cookie 값을 직접 읽거나 저장하지 않습니다. �
 
 필수 도구는 Java 21, Node.js, npm, Docker Desktop입니다.
 
+### 한 번에 실행하기 (권장)
+
+저장소 루트에서 아래 명령을 실행하면 Docker Desktop, PostgreSQL, Redis, Ollama,
+backend, frontend와 카카오 테스트용 HTTPS 터널을 순서대로 점검하고 꺼진 구성요소만 시작합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
+```
+
+카카오 스킬 URL을 클립보드에도 복사하려면 다음 옵션을 사용합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -CopySkillUrl
+```
+
+마지막에 출력되는 `Kakao skill` 주소가 챗봇 관리자센터에 등록된 URL과 다르면
+스킬의 `URL`·`Test URL`을 새 주소로 변경하고 저장·배포해야 합니다. Quick Tunnel은
+로컬 개발용 임시 주소이므로 PC 또는 터널 재시작 후 변경될 수 있습니다.
+
 ### Backend와 인프라
 
 ```powershell
@@ -156,6 +175,29 @@ npm run dev
 ```
 
 Frontend는 `http://localhost:5173`, backend는 `http://localhost:8080`에서 실행합니다.
+
+### 소셜 로그인 설정
+
+OAuth 앱을 각 공급자 개발자 콘솔에서 만든 뒤 backend 실행 환경에 다음 값을 설정합니다. 하나 이상의 공급자에 `CLIENT_ID`와 `CLIENT_SECRET`이 모두 있어야 하며, 설정한 공급자만 로그인 화면에 표시됩니다.
+
+```powershell
+$env:SOCIAL_LOGIN_ENABLED='true'
+$env:GOOGLE_CLIENT_ID='<client-id>'
+$env:GOOGLE_CLIENT_SECRET='<client-secret>'
+$env:KAKAO_CLIENT_ID='<rest-api-key>'
+$env:KAKAO_CLIENT_SECRET='<client-secret>'
+$env:NAVER_CLIENT_ID='<client-id>'
+$env:NAVER_CLIENT_SECRET='<client-secret>'
+$env:FRONTEND_ORIGIN='http://localhost:5173'
+```
+
+개발자 콘솔에 등록할 로컬 callback URI는 아래와 같습니다.
+
+- Google: `http://localhost:8080/login/oauth2/code/google`
+- 카카오: `http://localhost:8080/login/oauth2/code/kakao`
+- 네이버: `http://localhost:8080/login/oauth2/code/naver`
+
+운영 환경은 frontend의 공개 HTTPS origin을 사용합니다. 예를 들어 `https://caltalk.example.com/login/oauth2/code/google`처럼 등록하면 nginx가 callback을 backend로 전달합니다. 카카오는 `account_email`, Google은 `openid profile email`, 네이버는 이메일 정보 제공 동의를 활성화해야 합니다. 비밀키는 `.env`나 저장소에 커밋하지 말고 배포 환경의 secret 값으로 관리하세요.
 
 ## 검증 명령
 
@@ -218,7 +260,7 @@ E2E orchestration은 PostgreSQL 55432, Redis 56379, backend 8080, frontend 5173�
 - CI/CD, monitoring, alerting, backup/recovery가 구성되지 않았습니다.
 - rate limiting과 로그인 시도 제한이 구현되지 않았습니다.
 - 자연어 일정 입력과 OpenAI 연동이 구현되지 않았습니다.
-- 카카오 연동이 구현되지 않았습니다.
+- 카카오톡 채널·챗봇 연동은 구현되지 않았습니다. 카카오 계정 로그인과는 별도 범위입니다.
 - confirmation 취소 API가 구현되지 않았습니다.
 - 반복 일정과 알림이 구현되지 않았습니다.
 

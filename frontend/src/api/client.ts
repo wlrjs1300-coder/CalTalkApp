@@ -8,6 +8,10 @@ export function resolveApiBaseUrl(configured: string | undefined): string {
 
 const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`;
+}
+
 let csrfBootstrap: Promise<string> | undefined;
 
 interface ApiRequestOptions {

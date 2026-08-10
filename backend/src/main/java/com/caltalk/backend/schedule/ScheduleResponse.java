@@ -1,6 +1,7 @@
 package com.caltalk.backend.schedule;
 
 import java.time.Instant;
+import java.util.List;
 
 public record ScheduleResponse(
         Long id,
@@ -8,6 +9,7 @@ public record ScheduleResponse(
         Instant startAt,
         Instant endAt,
         String location,
+        List<Integer> reminderMinutes,
         Instant createdAt,
         Instant updatedAt,
         Long version
@@ -20,6 +22,7 @@ public record ScheduleResponse(
                 schedule.getStartAt(),
                 schedule.getEndAt(),
                 schedule.getLocation(),
+                schedule.getReminderMinutes(),
                 schedule.getCreatedAt(),
                 schedule.getUpdatedAt(),
                 schedule.getVersion()

@@ -1,6 +1,7 @@
 package com.caltalk.backend.schedule;
 
 import java.time.Instant;
+import java.util.List;
 
 import com.caltalk.backend.user.User;
 
@@ -41,6 +42,9 @@ public class Schedule {
     @Column(name = "end_at", nullable = false)
     private Instant endAt;
 
+    @Column(name = "reminder_minutes", nullable = false, length = 100)
+    private String reminderMinutes = "1440";
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -69,6 +73,17 @@ public class Schedule {
         this.endAt = endAt;
     }
 
+    public void changeReminderMinutes(List<Integer> values) {
+        reminderMinutes = values.stream().distinct().sorted(java.util.Comparator.reverseOrder())
+                .map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+    }
+
+    public List<Integer> getReminderMinutes() {
+        if (reminderMinutes == null || reminderMinutes.isBlank()) return List.of();
+        return java.util.Arrays.stream(reminderMinutes.split(","))
+                .map(String::trim).filter(value -> !value.isEmpty()).map(Integer::valueOf).toList();
+    }
+
     @PrePersist
     void assignTimestamps() {
         Instant now = Instant.now();
@@ -84,6 +99,7 @@ public class Schedule {
     public Long getId() {
         return id;
     }
+    public User getOwner() { return owner; }
 
     public String getTitle() {
         return title;

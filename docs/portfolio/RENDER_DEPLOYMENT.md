@@ -10,9 +10,11 @@ flowchart LR
     F -->|/ 및 SPA fallback| SPA[React dist]
     F -->|/api 및 /actuator| A[Backend Private Service :8080]
     A --> DB[(Render PostgreSQL)]
+    A --> KV[(Render Key Value)]
+    A --> AI[Hosted AI provider]
 ```
 
-Frontend, backend와 database는 같은 workspace와 `singapore` region에 둡니다. Browser에는 frontend만 공개하고 custom domain도 frontend에만 연결합니다. Backend는 public URL이 없는 Private Service가 기본입니다.
+Frontend, backend, database와 Key Value는 같은 workspace와 `singapore` region에 둡니다. Browser에는 frontend만 공개하고 custom domain도 frontend에만 연결합니다. Backend는 public URL이 없는 Private Service가 기본입니다. 카카오 스킬 URL은 공개 frontend origin의 `/api/v1/kakao/skill`을 사용하며 Nginx가 private backend로 전달합니다.
 
 ## Blueprint 배포
 
@@ -20,6 +22,7 @@ Frontend, backend와 database는 같은 workspace와 `singapore` region에 둡�
 
 - `DB_URL`: `jdbc:postgresql://<internal-host>:5432/<database>`
 - `CORS_ALLOWED_ORIGINS`: `https://caltalk.<메인도메인>` 형태의 exact origin
+- `REDIS_URL`: Blueprint가 `caltalk-redis`의 internal connection string으로 자동 연결
 
 `DB_USERNAME`과 `DB_PASSWORD`는 database property reference로, frontend의 `BACKEND_ORIGIN`은 backend `hostport` reference로 연결됩니다. Blueprint는 문자열 보간을 지원하지 않고 PostgreSQL `connectionString`은 `postgresql://` 형식이므로 JDBC prefix가 필요한 `DB_URL`은 수동 입력합니다. 기존 Blueprint를 갱신할 때 새 `sync: false` 항목은 자동 prompt되지 않으므로 Dashboard에서 직접 추가합니다.
 
@@ -46,9 +49,20 @@ Private Service가 계정/plan 제약으로 불가능한 경우에만 backend를
 | `DB_URL` | `jdbc:postgresql://<internal-host>:5432/<database>` |
 | `DB_USERNAME` | Render PostgreSQL user |
 | `DB_PASSWORD` | Render PostgreSQL password |
+| `REDIS_URL` | Render Key Value internal connection string |
 | `SESSION_COOKIE_SECURE` | `true` |
 | `CORS_ALLOWED_ORIGINS` | `https://caltalk.<메인도메인>` |
 | `JAVA_TOOL_OPTIONS` | `-XX:MaxRAMPercentage=75.0` |
+
+카카오 챗봇 운영에는 `KAKAO_CHATBOT_ENABLED=true`, 기존 스킬 헤더와 같은
+`KAKAO_CHATBOT_SKILL_SECRET`, 고정된 `KAKAO_IDENTITY_HMAC_SECRET`이 필요합니다.
+자연어 처리에는 아래 AI 운영 방식을 먼저 결정해야 합니다.
+
+- Render의 일반 CPU 서비스는 로컬 PC의 Ollama/RTX에 접근하지 못합니다.
+- Ollama 우선 정책을 운영에서도 유지하려면 인증된 별도 GPU Ollama endpoint가 필요합니다.
+- GPU endpoint 준비 전 임시 운영은 OpenAI fallback을 주 공급자로 사용할 수 있지만,
+  이는 로컬 Ollama 우선이라는 목표 구조의 임시 예외로 명시해야 합니다.
+- PC의 Ollama를 임시 터널로 노출하면 PC 의존성과 보안 위험이 남으므로 운영 구성으로 사용하지 않습니다.
 
 Backend는 localhost에 고정 바인딩하지 않고 `server.port=${PORT:8080}`을 사용합니다. Render private network는 port 10000을 예약하므로 backend는 8080을 명시합니다. Flyway V1~V4는 application startup에서 한 번 실행하며 별도 pre-deploy migration을 구성하지 않습니다.
 

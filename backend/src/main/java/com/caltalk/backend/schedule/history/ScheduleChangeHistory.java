@@ -69,10 +69,14 @@ public class ScheduleChangeHistory {
     }
 
     public static ScheduleChangeHistory created(Schedule schedule, User user) {
+        return created(schedule, user, "PWA");
+    }
+
+    public static ScheduleChangeHistory created(Schedule schedule, User user, String sourceChannel) {
         ScheduleChangeHistory history = new ScheduleChangeHistory();
         history.schedule = schedule;
         history.changedBy = user;
-        history.sourceChannel = "PWA";
+        history.sourceChannel = sourceChannel;
         history.changeType = "CREATE";
         history.titleAfter = schedule.getTitle();
         history.startAtAfter = schedule.getStartAt();
@@ -89,10 +93,22 @@ public class ScheduleChangeHistory {
             Instant endAtBefore,
             String locationBefore
     ) {
+        return updated(schedule, user, titleBefore, startAtBefore, endAtBefore, locationBefore, "PWA");
+    }
+
+    public static ScheduleChangeHistory updated(
+            Schedule schedule,
+            User user,
+            String titleBefore,
+            Instant startAtBefore,
+            Instant endAtBefore,
+            String locationBefore,
+            String sourceChannel
+    ) {
         ScheduleChangeHistory history = new ScheduleChangeHistory();
         history.schedule = schedule;
         history.changedBy = user;
-        history.sourceChannel = "PWA";
+        history.sourceChannel = sourceChannel;
         history.changeType = "UPDATE";
         history.titleBefore = titleBefore;
         history.startAtBefore = startAtBefore;

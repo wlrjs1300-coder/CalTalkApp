@@ -27,6 +27,9 @@ test('keeps authentication, home, and schedule form inside all target viewports'
   try {
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
+      await page.goto('/welcome');
+      await expect(page.getByRole('heading', { name: /카톡으로 간편하게/ })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
       await page.goto('/login');
       await expect(page.getByRole('heading', { name: /복잡한 일정을/ })).toBeVisible();
       await expectNoHorizontalOverflow(page);
@@ -36,9 +39,7 @@ test('keeps authentication, home, and schedule form inside all target viewports'
     await signupAndLogin(page, email);
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
-      await expect(
-        page.getByRole('heading', { name: '오늘의 일정을 정리해 볼까요?' }),
-      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: '오늘의 일정' })).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await page.getByRole('button', { name: '새 일정' }).click();
       const dialog = page.getByRole('dialog');

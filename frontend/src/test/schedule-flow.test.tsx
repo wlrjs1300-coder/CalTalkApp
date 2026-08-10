@@ -103,7 +103,7 @@ describe('schedule workspace', () => {
     renderWorkspace();
     expect(screen.getByRole('status', { name: '일정을 불러오는 중' })).toBeVisible();
     resolveList({ items: [] });
-    expect(await screen.findByRole('heading', { name: '아직 일정이 없습니다' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '등록된 일정이 없어요' })).toBeVisible();
     expect(screen.getByRole('button', { name: '첫 일정 만들기' })).toBeVisible();
   });
 

@@ -5,6 +5,7 @@ import java.time.Instant;
 public record CurrentUserResponse(
         String email,
         String timezone,
-        Instant createdAt
+        Instant createdAt,
+        ChatPreferencesResponse chatPreferences
 ) {
 }
