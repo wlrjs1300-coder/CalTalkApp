@@ -18,6 +18,7 @@ case "${BACKEND_ORIGIN:-}" in
     echo "BACKEND_ORIGIN is required" >&2
     exit 1
     ;;
+  *.onrender.com) BACKEND_ORIGIN="https://${BACKEND_ORIGIN}" ;;
   *) BACKEND_ORIGIN="http://${BACKEND_ORIGIN}" ;;
 esac
 export BACKEND_ORIGIN

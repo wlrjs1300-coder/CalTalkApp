@@ -1,105 +1,139 @@
-# Render 배포 가이드
+# Render 무료 배포 가이드
 
-## 상태와 아키텍처
+## 배포 구조
 
-이 저장소는 Render 배포 설정과 로컬 검증 경로만 준비합니다. 실제 Render 리소스, custom domain, Route 53 record와 외부 TLS 검증은 아직 완료되지 않았습니다.
+CalTalk의 검증·시연 환경은 저장소 루트의 `render.yaml`로 다음 리소스를 생성합니다.
 
-```mermaid
-flowchart LR
-    B[Browser] -->|HTTPS / Render TLS| F[Frontend Docker Web Service]
-    F -->|/ 및 SPA fallback| SPA[React dist]
-    F -->|/api 및 /actuator| A[Backend Private Service :8080]
-    A --> DB[(Render PostgreSQL)]
-    A --> KV[(Render Key Value)]
-    A --> AI[Hosted AI provider]
+- `caltalk-frontend`: Docker Free Web Service
+- `caltalk-backend`: Docker Free Web Service
+- `caltalk-postgres`: Free Render Postgres
+- `caltalk-redis`: Free Render Key Value
+
+브라우저와 카카오톡은 공개 frontend origin만 사용합니다. Frontend Nginx가 `/api`,
+`/oauth2`, `/login/oauth2`, `/actuator` 요청을 공개 backend origin으로 전달합니다.
+무료 Web Service는 private network 요청을 받을 수 없기 때문에 backend도 Web Service로
+배포하지만, 사용자가 직접 backend URL을 사용할 필요는 없습니다.
+
+## 무료 플랜 제한
+
+- Free Web Service는 15분 동안 요청이 없으면 중지되며 첫 요청의 응답이 늦어질 수 있습니다.
+- 두 Web Service가 워크스페이스의 월 750 free instance hours를 함께 사용합니다.
+- Free Postgres는 생성 30일 후 만료되고 백업과 managed connection pooling을 제공하지 않습니다.
+- Free Key Value는 재시작 시 데이터가 사라집니다. 로그인 세션과 진행 중인 챗봇 명령도 초기화될 수 있습니다.
+- 카카오톡 callback이 backend cold start를 기다리지 못해 첫 요청이 실패할 수 있습니다.
+- OpenAI API, 도메인 등록 및 Route 53 비용은 Render 무료 플랜과 별개입니다.
+
+이 구성은 포트폴리오와 기능 검증용입니다. 실제 사용자에게 상시 서비스를 제공하기 전에는
+backend와 PostgreSQL을 유료 또는 다른 지속형 인프라로 이전해야 합니다.
+
+## Blueprint 생성
+
+1. Render Dashboard에서 `New > Blueprint`를 선택합니다.
+2. GitHub의 `wlrjs1300-coder/CalTalkApp` 저장소를 연결합니다.
+3. branch는 `develop`, Blueprint path는 `render.yaml`을 선택합니다.
+4. 생성될 리소스 네 개가 모두 `Free`, region이 `Singapore`인지 확인합니다.
+5. 아래 `sync: false` 항목만 Dashboard에서 입력하고 `Deploy Blueprint`를 실행합니다.
+
+`render.yaml`은 다음 값을 자동 연결합니다.
+
+- Postgres connection string → backend `DB_URL`
+- Postgres user/password → backend `DB_USERNAME`, `DB_PASSWORD`
+- Key Value connection string → backend `REDIS_URL`
+- Frontend Render hostname → backend `CORS_ALLOWED_ORIGINS`, `FRONTEND_ORIGIN`
+- Backend Render hostname → frontend `BACKEND_ORIGIN`
+
+Backend는 Render의 `postgresql://` URL을 시작 시 `jdbc:postgresql://`로 변환합니다.
+Backend와 frontend는 protocol이 없는 Render hostname을 HTTPS origin으로 변환합니다.
+
+## 최초 입력이 필요한 비밀값
+
+아래 값은 로컬 `backend/.env`에서 확인하되 GitHub, 문서, 채팅 또는 스크린샷에 노출하지 않습니다.
+
+```text
+SOCIAL_LOGIN_ENABLED=true
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+KAKAO_CLIENT_ID
+KAKAO_CLIENT_SECRET
+NAVER_CLIENT_ID
+NAVER_CLIENT_SECRET
+KAKAO_CHATBOT_SKILL_SECRET
+OPENAI_API_KEY
+WEB_PUSH_VAPID_PUBLIC_KEY
+WEB_PUSH_VAPID_PRIVATE_KEY
+WEB_PUSH_VAPID_SUBJECT=mailto:<운영 이메일>
+CUSTOM_FRONTEND_ORIGIN=https://caltalk.<보유 도메인>
 ```
 
-Frontend, backend, database와 Key Value는 같은 workspace와 `singapore` region에 둡니다. Browser에는 frontend만 공개하고 custom domain도 frontend에만 연결합니다. Backend는 public URL이 없는 Private Service가 기본입니다. 카카오 스킬 URL은 공개 frontend origin의 `/api/v1/kakao/skill`을 사용하며 Nginx가 private backend로 전달합니다.
+`KAKAO_IDENTITY_HMAC_SECRET`은 Blueprint가 안전한 임의 값으로 생성합니다.
+Render에서는 사용자 PC의 Ollama에 접근할 수 없으므로 무료 검증 환경은
+`OLLAMA_ENABLED=false`, `OPENAI_FALLBACK_ENABLED=true`로 실행됩니다.
+AWS 서브도메인을 아직 결정하지 않았다면 `CUSTOM_FRONTEND_ORIGIN`은 비워 둡니다. 나중에
+추가하면 해당 주소를 로그인 복귀 origin으로 사용하고 Render 기본 주소와 함께 CORS에 허용합니다.
 
-## Blueprint 배포
+## 배포 확인
 
-저장소 루트의 `render.yaml`은 frontend Web Service, backend Private Service와 managed PostgreSQL을 생성합니다. Render Dashboard에서 New > Blueprint로 저장소를 연결한 뒤 생성 화면에서 `sync: false`인 값을 입력합니다.
+Frontend의 실제 `onrender.com` URL을 확인한 다음 아래 경로를 순서대로 검사합니다.
 
-- `DB_URL`: `jdbc:postgresql://<internal-host>:5432/<database>`
-- `CORS_ALLOWED_ORIGINS`: `https://caltalk.<메인도메인>` 형태의 exact origin
-- `REDIS_URL`: Blueprint가 `caltalk-redis`의 internal connection string으로 자동 연결
-
-`DB_USERNAME`과 `DB_PASSWORD`는 database property reference로, frontend의 `BACKEND_ORIGIN`은 backend `hostport` reference로 연결됩니다. Blueprint는 문자열 보간을 지원하지 않고 PostgreSQL `connectionString`은 `postgresql://` 형식이므로 JDBC prefix가 필요한 `DB_URL`은 수동 입력합니다. 기존 Blueprint를 갱신할 때 새 `sync: false` 항목은 자동 prompt되지 않으므로 Dashboard에서 직접 추가합니다.
-
-Plan 가격과 무료 정책은 변경될 수 있습니다. 적용 전에 Dashboard에서 최신 plan, region 지원, 비용과 database 만료/backup 정책을 확인해 `render.yaml`의 plan을 조정합니다. Private Service에는 free plan을 사용할 수 없습니다.
-
-## Dashboard 수동 설정 대안
-
-1. 같은 region에 Render PostgreSQL을 만들고 외부 inbound access를 차단합니다.
-2. `backend` root directory의 Docker Private Service를 만들고 port 8080으로 실행합니다.
-3. 아래 backend 환경 변수를 설정하고 `/actuator/health`를 확인합니다.
-4. `frontend` root directory의 Docker Web Service를 만들고 health check path를 `/healthz`로 설정합니다.
-5. Backend의 Connect > Internal에 표시되는 Service Address를 frontend `BACKEND_ORIGIN`에 `http://<host>:8080`으로 설정합니다.
-
-Private Service가 계정/plan 제약으로 불가능한 경우에만 backend를 Web Service로 만들되 custom domain은 연결하지 않고, frontend는 backend의 private address로 통신합니다. 공개 backend URL을 browser API base로 사용하지 않습니다.
-
-## 환경 변수
-
-### Backend Private Service
-
-| 변수 | 값 |
-|---|---|
-| `PORT` | `8080` |
-| `SPRING_PROFILES_ACTIVE` | `prod` |
-| `DB_URL` | `jdbc:postgresql://<internal-host>:5432/<database>` |
-| `DB_USERNAME` | Render PostgreSQL user |
-| `DB_PASSWORD` | Render PostgreSQL password |
-| `REDIS_URL` | Render Key Value internal connection string |
-| `SESSION_COOKIE_SECURE` | `true` |
-| `CORS_ALLOWED_ORIGINS` | `https://caltalk.<메인도메인>` |
-| `JAVA_TOOL_OPTIONS` | `-XX:MaxRAMPercentage=75.0` |
-
-카카오 챗봇 운영에는 `KAKAO_CHATBOT_ENABLED=true`, 기존 스킬 헤더와 같은
-`KAKAO_CHATBOT_SKILL_SECRET`, 고정된 `KAKAO_IDENTITY_HMAC_SECRET`이 필요합니다.
-자연어 처리에는 아래 AI 운영 방식을 먼저 결정해야 합니다.
-
-- Render의 일반 CPU 서비스는 로컬 PC의 Ollama/RTX에 접근하지 못합니다.
-- Ollama 우선 정책을 운영에서도 유지하려면 인증된 별도 GPU Ollama endpoint가 필요합니다.
-- GPU endpoint 준비 전 임시 운영은 OpenAI fallback을 주 공급자로 사용할 수 있지만,
-  이는 로컬 Ollama 우선이라는 목표 구조의 임시 예외로 명시해야 합니다.
-- PC의 Ollama를 임시 터널로 노출하면 PC 의존성과 보안 위험이 남으므로 운영 구성으로 사용하지 않습니다.
-
-Backend는 localhost에 고정 바인딩하지 않고 `server.port=${PORT:8080}`을 사용합니다. Render private network는 port 10000을 예약하므로 backend는 8080을 명시합니다. Flyway V1~V4는 application startup에서 한 번 실행하며 별도 pre-deploy migration을 구성하지 않습니다.
-
-### Frontend Web Service
-
-| 변수 | 값 |
-|---|---|
-| `PORT` | Render가 runtime에 자동 제공; 수동 설정 불필요 |
-| `BACKEND_ORIGIN` | backend `hostport` 참조 또는 `http://<private-host>:8080` |
-| `VITE_API_BASE_URL` | 빈 값(기본값, build time) |
-
-Startup은 `PORT`와 `BACKEND_ORIGIN`만 Nginx template에 치환합니다. `host:port`만 전달되면 `http://`를 붙이고 다른 protocol은 거부합니다. `proxy_pass` 뒤에 URI를 붙이지 않아 `/api/v1/...`와 `/actuator/...` 경로가 그대로 전달됩니다.
-
-## Same-origin, cookie와 CSRF
-
-Browser 요청은 frontend origin의 `/api`와 `/actuator`를 사용합니다. Nginx는 Host와 forwarded header를 전달하며 cookie와 `X-XSRF-TOKEN`을 변경하지 않습니다. Production session cookie와 JavaScript-readable CSRF cookie는 Secure, SameSite=Lax, Path=/입니다. CSRF는 활성 상태이며 CORS는 wildcard가 아닌 exact origin만 허용합니다.
-
-## Custom domain과 Route 53
-
-1. Frontend 배포와 `/healthz` 성공을 먼저 확인합니다.
-2. Frontend Settings > Custom Domains에 `caltalk.<메인도메인>`을 추가하고 DNS target을 확인합니다.
-3. 메인 도메인의 기존 Route 53 Public Hosted Zone에서 같은 이름의 A/AAAA/CNAME 충돌이 없는지 확인합니다.
-4. name `caltalk`, type `CNAME`, Alias Off, value는 Render frontend hostname, TTL 300(또는 기본값)으로 추가합니다.
-5. Render에서 Verify 후 managed TLS 발급 완료를 확인합니다.
-
-값에는 `https://`나 URL path를 넣지 않습니다. apex/www record를 수정하거나 별도 subdomain hosted zone, Alias, 고정 IP A record를 만들지 않습니다.
-
-```powershell
-Resolve-DnsName caltalk.<메인도메인>
-curl.exe -I https://caltalk.<메인도메인>
-curl.exe https://caltalk.<메인도메인>/healthz
+```text
+https://<frontend-host>/healthz
+https://<frontend-host>/actuator/health
+https://<frontend-host>/
+https://<frontend-host>/welcome
 ```
 
-## Smoke, rollback과 운영
+`/healthz`는 `ok`, `/actuator/health`는 `UP`이어야 합니다. 최초 접근에서는 frontend와
+backend가 차례로 깨어나므로 일시적인 502/504가 발생할 수 있습니다. 잠시 후 다시 확인합니다.
 
-배포 후 `/healthz`, `/`, `/login`, `/api/v1/health`, `/actuator/health`, 회원가입·로그인, CSRF 변경 요청과 로그아웃을 확인합니다. Browser network의 API 요청이 frontend origin만 사용하는지도 확인합니다.
+## 소셜 로그인 callback
 
-Application rollback은 Render Deploys에서 직전 정상 deploy를 선택합니다. Flyway는 forward-only이므로 이전 application과 적용된 schema의 호환성을 먼저 확인합니다. Database backup/snapshot 보존과 restore를 운영 전에 검증합니다. DB password 회전 시 backend 환경 변수가 새 credential을 가리키는지 확인하고 재배포한 뒤 기존 credential을 폐기합니다.
+각 플랫폼 개발자 콘솔에 아래 운영 callback을 추가합니다.
 
-남은 운영 작업은 실제 Blueprint 생성과 비용 결정, domain/Route 53/TLS 적용, monitoring·alerting·log 보존, backup/restore drill, instance sizing과 rollback rehearsal입니다.
+```text
+https://<frontend-host>/login/oauth2/code/google
+https://<frontend-host>/login/oauth2/code/kakao
+https://<frontend-host>/login/oauth2/code/naver
+```
+
+AWS 서브도메인을 연결한 뒤에는 `<frontend-host>` 대신 최종 사용자 도메인의 callback도 추가합니다.
+
+## 카카오톡 챗봇
+
+챗봇 관리자센터의 운영 스킬 URL과 Test URL을 다음 주소로 변경하고 저장·배포합니다.
+
+```text
+https://<frontend-host>/api/v1/kakao/skill
+```
+
+AWS 서브도메인 연결 후에는 최종 주소로 한 번 더 변경합니다. 무료 backend가 중지된 상태의
+첫 요청은 callback 제한 시간 안에 응답하지 못할 수 있으므로 연속 두 번째 요청도 확인합니다.
+
+## AWS Route 53 서브도메인
+
+1. Frontend 서비스의 `Settings > Custom Domains`에서 사용자 서브도메인을 추가합니다.
+2. Render가 안내하는 DNS target을 확인합니다.
+3. Route 53 Public Hosted Zone에 CNAME을 추가합니다.
+4. Render의 도메인 검증과 managed TLS 발급이 완료될 때까지 기다립니다.
+
+예시:
+
+```text
+Name: caltalk
+Type: CNAME
+Value: <frontend-host>.onrender.com
+TTL: 300
+```
+
+DNS 값에는 `https://`나 URL path를 넣지 않습니다.
+
+## PWA 알림 재등록
+
+Push subscription은 origin별로 분리됩니다. 운영 주소 또는 AWS 서브도메인에서 다시 로그인한 뒤
+`설정 > 알림 허용 > 테스트 발송`을 실행합니다. localhost에서 만든 구독은 운영 origin으로
+자동 이전되지 않습니다.
+
+## 30일 운영 체크
+
+Free Postgres 만료 전에 필요한 데이터를 내보냅니다. 계속 운영할 경우 만료 전에 Postgres를
+유료로 업그레이드하거나 다른 영구 PostgreSQL로 이전합니다. 무료 검증 환경에서는 데이터가
+영구 보존된다고 안내하면 안 됩니다.

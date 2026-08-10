@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class CalTalkBackendApplication {
 
 	public static void main(String[] args) {
+		RenderEnvironmentNormalizer.normalize();
 		SpringApplication.run(CalTalkBackendApplication.class, args);
 	}
 
