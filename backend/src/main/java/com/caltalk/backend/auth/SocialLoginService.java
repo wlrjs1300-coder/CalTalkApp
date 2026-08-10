@@ -21,14 +21,14 @@ public class SocialLoginService {
     }
 
     @Transactional
-    public User login(SocialProfile profile) {
+    public String login(SocialProfile profile) {
         return socialIdentityRepository
                 .findByProviderAndProviderSubject(profile.provider(), profile.subject())
-                .map(SocialIdentity::getUser)
+                .map(identity -> identity.getUser().getEmail())
                 .orElseGet(() -> linkNewIdentity(profile));
     }
 
-    private User linkNewIdentity(SocialProfile profile) {
+    private String linkNewIdentity(SocialProfile profile) {
         User user = userRepository.findByEmail(profile.email())
                 .orElseGet(() -> userRepository.save(new User(profile.email(), null)));
         socialIdentityRepository.save(new SocialIdentity(
@@ -37,6 +37,6 @@ public class SocialLoginService {
                 profile.subject(),
                 profile.email()
         ));
-        return user;
+        return user.getEmail();
     }
 }
