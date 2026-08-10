@@ -1,5 +1,6 @@
 package com.caltalk.backend;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -29,7 +30,21 @@ final class RenderEnvironmentNormalizer {
         }
         String trimmed = value.trim();
         if (trimmed.startsWith("postgres://") || trimmed.startsWith("postgresql://")) {
-            return "jdbc:" + trimmed;
+            URI connectionUri = URI.create(trimmed);
+            String host = connectionUri.getHost();
+            if (host == null || host.isBlank()) {
+                throw new IllegalArgumentException("PostgreSQL connection URL must contain a host");
+            }
+            int port = connectionUri.getPort() == -1 ? 5432 : connectionUri.getPort();
+            StringBuilder jdbcUrl = new StringBuilder("jdbc:postgresql://")
+                    .append(host)
+                    .append(':')
+                    .append(port)
+                    .append(connectionUri.getRawPath());
+            if (connectionUri.getRawQuery() != null) {
+                jdbcUrl.append('?').append(connectionUri.getRawQuery());
+            }
+            return jdbcUrl.toString();
         }
         return trimmed;
     }

@@ -42,7 +42,9 @@ backend와 PostgreSQL을 유료 또는 다른 지속형 인프라로 이전해�
 - Frontend Render hostname → backend `CORS_ALLOWED_ORIGINS`, `FRONTEND_ORIGIN`
 - Backend Render hostname → frontend `BACKEND_ORIGIN`
 
-Backend는 Render의 `postgresql://` URL을 시작 시 `jdbc:postgresql://`로 변환합니다.
+Backend는 Render의 `postgresql://user:password@host/database` URL에서 인증정보를 분리하고
+시작 시 `jdbc:postgresql://host:5432/database`로 변환합니다. 인증은 별도로 연결된
+`DB_USERNAME`과 `DB_PASSWORD`를 사용합니다.
 Backend와 frontend는 protocol이 없는 Render hostname을 HTTPS origin으로 변환합니다.
 
 ## 최초 입력이 필요한 비밀값
