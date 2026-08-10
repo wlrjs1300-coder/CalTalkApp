@@ -7,6 +7,53 @@ interface LocalDateTimeParts {
   second: number;
 }
 
+export function getDateKey(iso: string, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(new Date(iso));
+}
+
+function parseDateKey(value: string): { year: number; month: number; day: number } | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return undefined;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return undefined;
+  const asDate = new Date(year, month - 1, day);
+  if (Number.isNaN(asDate.getTime())) return undefined;
+  return {
+    year,
+    month,
+    day,
+  };
+}
+
+function nextDateKey(dateKey: string) {
+  const parsed = parseDateKey(dateKey);
+  if (!parsed) return dateKey;
+  const next = new Date(parsed.year, parsed.month - 1, parsed.day + 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(
+    2,
+    '0',
+  )}`;
+}
+
+export function getDayRangeFromDate(dateKey: string, timeZone: string) {
+  const parsed = parseDateKey(dateKey);
+  if (!parsed) {
+    throw new Error('INVALID_DATE_KEY');
+  }
+
+  const date = `${String(parsed.year).padStart(4, '0')}-${String(parsed.month).padStart(2, '0')}-${String(parsed.day).padStart(2, '0')}`;
+  return {
+    from: dateTimeLocalToUtc(`${date}T00:00`, timeZone),
+    to: dateTimeLocalToUtc(`${nextDateKey(date)}T00:00`, timeZone),
+  };
+}
+
 function formatter(timeZone: string, includeSeconds = false): Intl.DateTimeFormat {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,

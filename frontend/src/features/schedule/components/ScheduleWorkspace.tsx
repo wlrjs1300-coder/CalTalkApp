@@ -1,23 +1,26 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../../api/errors';
 import type { CreateScheduleRequest, ScheduleDetail } from '../../../api/schedule';
 import { currentUserQueryKey } from '../../auth/authQuery';
-import { dateTimeLocalToUtc, scheduleQueryRange } from '../dateTime';
+import { dateTimeLocalToUtc, getDateKey, scheduleQueryRange } from '../dateTime';
 import { useScheduleMutations } from '../mutations';
 import { useSchedule, useSchedules } from '../queries';
 import { buildUpdateRequest, type ScheduleFormValues } from '../schemas';
 import { ConflictDialog, type ConflictState } from './ConflictDialog';
 import { DeleteScheduleDialog } from './DeleteScheduleDialog';
+import { ScheduleCalendar } from './ScheduleCalendar';
 import { ScheduleDetail as DetailDialog } from './ScheduleDetail';
 import { ScheduleForm } from './ScheduleForm';
-import { ScheduleList } from './ScheduleList';
 
 interface ScheduleWorkspaceProps {
   timeZone: string;
+  viewMode?: WorkspaceTab;
+  onDateSelect?: (dateKey: string) => void;
 }
 
 type FormState = { mode: 'create' } | { mode: 'edit'; original: ScheduleDetail };
+type WorkspaceTab = 'list' | 'calendar';
 
 function conflictFrom(error: ApiError): ConflictState | undefined {
   if (
@@ -36,12 +39,16 @@ function conflictFrom(error: ApiError): ConflictState | undefined {
 function dateError(error: unknown): ApiError {
   const message =
     error instanceof Error && error.message === 'NONEXISTENT_LOCAL_TIME'
-      ? '선택한 시간은 일광 절약 시간 전환으로 존재하지 않습니다.'
-      : '날짜와 시간대를 확인해 주세요.';
+      ? '입력하신 시작 시간은 존재하지 않는 시간입니다. 시간을 다시 선택해 주세요.'
+      : '입력이 올바르지 않습니다.';
   return new ApiError({ status: 422, code: 'INVALID_LOCAL_TIME', message });
 }
 
-export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
+export function ScheduleWorkspace({ timeZone, onDateSelect }: ScheduleWorkspaceProps) {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isPwaMode, setIsPwaMode] = useState(false);
+
   const range = useMemo(() => scheduleQueryRange(), []);
   const schedules = useSchedules(range.from, range.to);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -54,16 +61,50 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
   const [conflict, setConflict] = useState<ConflictState>();
   const [notice, setNotice] = useState<string>();
 
+  const tab: WorkspaceTab = 'calendar';
+
   useEffect(() => {
     if (schedules.error instanceof ApiError && schedules.error.status === 401) {
       queryClient.removeQueries({ queryKey: currentUserQueryKey });
     }
   }, [queryClient, schedules.error]);
 
-  const openCreate = () => {
-    mutations.create.reset();
-    setFormError(undefined);
-    setFormState({ mode: 'create' });
+  useEffect(() => {
+    const standalone = window.matchMedia('(display-mode: standalone)');
+    const mobileViewport = window.matchMedia('(max-width: 900px)');
+    const iosStandalone = Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+    const checkPwaMode = () => setIsPwaMode(standalone.matches || iosStandalone || mobileViewport.matches);
+
+    checkPwaMode();
+
+    if (typeof standalone.addEventListener === 'function' && typeof mobileViewport.addEventListener === 'function') {
+      standalone.addEventListener('change', checkPwaMode);
+      mobileViewport.addEventListener('change', checkPwaMode);
+      return () => {
+        standalone.removeEventListener('change', checkPwaMode);
+        mobileViewport.removeEventListener('change', checkPwaMode);
+      };
+    }
+
+    return undefined;
+  }, []);
+
+  useEffect(() => {
+    const target = sectionRef.current;
+    if (!target) return;
+    const onScroll = () => {
+      const rect = target.getBoundingClientRect();
+      const schedulePassed = rect.top <= -64;
+      const isPastSectionStart = window.scrollY > 180;
+      setShowScrollTop(schedulePassed && isPastSectionStart);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const onScrollTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const submitCreate = (values: ScheduleFormValues) => {
@@ -83,7 +124,7 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
     mutations.create.mutate(request, {
       onSuccess: () => {
         setFormState(undefined);
-        setNotice('일정을 생성했습니다.');
+        setNotice('일정이 생성되었습니다.');
       },
       onError: (error) => {
         const nextConflict = error instanceof ApiError ? conflictFrom(error) : undefined;
@@ -112,7 +153,7 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
         onSuccess: (updated) => {
           setFormState(undefined);
           setSelectedId(updated.id);
-          setNotice('일정을 수정했습니다.');
+          setNotice('일정이 수정되었습니다.');
         },
         onError: (error) => {
           const nextConflict = error instanceof ApiError ? conflictFrom(error) : undefined;
@@ -136,7 +177,7 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
         onSuccess: () => {
           setDeleteTarget(undefined);
           setSelectedId(null);
-          setNotice('일정을 삭제했습니다.');
+          setNotice('일정이 삭제되었습니다.');
         },
       },
     );
@@ -148,7 +189,7 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
       onSuccess: (schedule) => {
         setConflict(undefined);
         setSelectedId(schedule.id);
-        setNotice('충돌을 확인하고 일정을 저장했습니다.');
+        setNotice('일정 충돌을 확인해 진행했어요.');
       },
       onError: (error) => {
         const replacement = error instanceof ApiError ? conflictFrom(error) : undefined;
@@ -156,7 +197,7 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
           setConflict({
             ...replacement,
             replacementCount: conflict.replacementCount + 1,
-            notice: '일정 정보가 바뀌어 최신 내용으로 다시 확인이 필요합니다.',
+            notice: '일정 변경이 밀려서 다시 확인이 필요해요.',
           });
         }
       },
@@ -172,32 +213,29 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
       ? undefined
       : mutations.approve.error;
 
+  const scheduleCount = schedules.data?.items.length ?? 0;
+  const isEmpty = !schedules.isPending && !schedules.error && scheduleCount === 0;
+  const openSchedule = (id: number) => {
+    const schedule = schedules.data?.items.find((item) => item.id === id);
+    if (onDateSelect && schedule) {
+      onDateSelect(getDateKey(schedule.startAt, timeZone));
+      return;
+    }
+    setSelectedId(id);
+  };
+
   return (
-    <section className="schedule-section" aria-labelledby="schedule-heading">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">나의 캘린더</p>
-          <h2 id="schedule-heading">다가오는 일정</h2>
-          <p className="muted">가까운 일정부터 시간 순서로 확인하세요.</p>
-        </div>
-        <button type="button" className="primary-button compact-button" onClick={openCreate}>
-          <span aria-hidden="true">＋</span> 새 일정
-        </button>
-      </div>
+    <section
+      ref={sectionRef}
+      className={`schedule-section${isEmpty ? ' is-empty' : ''} ${tab === 'calendar' ? 'is-calendar-mode' : ''}`}
+    >
       {notice ? (
         <div className="success-notice" role="status">
           {notice}
         </div>
       ) : null}
-      <ScheduleList
-        schedules={schedules.data?.items}
-        timeZone={timeZone}
-        isLoading={schedules.isPending}
-        error={schedules.error}
-        onRetry={() => void schedules.refetch()}
-        onSelect={setSelectedId}
-        onCreate={openCreate}
-      />
+
+      <ScheduleCalendar schedules={schedules.data?.items} timeZone={timeZone} onSelect={openSchedule} onDateSelect={onDateSelect} />
 
       {selectedId !== null && !formState && !deleteTarget ? (
         <DetailDialog
@@ -223,14 +261,10 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
           mode={formState.mode}
           original={formState.mode === 'edit' ? formState.original : undefined}
           timeZone={timeZone}
-          pending={
-            formState.mode === 'create' ? mutations.create.isPending : mutations.update.isPending
-          }
+          pending={formState.mode === 'create' ? mutations.create.isPending : mutations.update.isPending}
           error={activeFormError}
           onSubmit={(values) =>
-            formState.mode === 'create'
-              ? submitCreate(values)
-              : submitEdit(values, formState.original)
+            formState.mode === 'create' ? submitCreate(values) : submitEdit(values, formState.original)
           }
           onClose={() => setFormState(undefined)}
         />
@@ -255,6 +289,12 @@ export function ScheduleWorkspace({ timeZone }: ScheduleWorkspaceProps) {
           onApprove={approve}
           onClose={() => setConflict(undefined)}
         />
+      ) : null}
+
+      {showScrollTop && isPwaMode ? (
+        <button type="button" className="scroll-top-button" onClick={onScrollTop} aria-label="맨 위로 이동">
+          <span aria-hidden="true">↑</span>
+        </button>
       ) : null}
     </section>
   );

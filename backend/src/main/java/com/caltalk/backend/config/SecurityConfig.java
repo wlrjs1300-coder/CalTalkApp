@@ -3,6 +3,7 @@ package com.caltalk.backend.config;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,6 +18,7 @@ import org.springframework.security.web.authentication.session.ChangeSessionIdAu
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -28,6 +30,8 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.caltalk.backend.common.error.SecurityErrorHandler;
+import com.caltalk.backend.auth.SocialAuthenticationFailureHandler;
+import com.caltalk.backend.auth.SocialAuthenticationSuccessHandler;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -39,14 +43,18 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             SecurityErrorHandler securityErrorHandler,
-            CsrfTokenRepository csrfTokenRepository
+            CsrfTokenRepository csrfTokenRepository,
+            Optional<ClientRegistrationRepository> clientRegistrationRepository,
+            Optional<SocialAuthenticationSuccessHandler> socialSuccessHandler,
+            Optional<SocialAuthenticationFailureHandler> socialFailureHandler
     ) throws Exception {
         http.cors(Customizer.withDefaults()).csrf(csrf -> csrf
                 .csrfTokenRepository(csrfTokenRepository)
                 .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                 .ignoringRequestMatchers(
                         "/api/v1/auth/signup",
-                        "/api/v1/auth/login"
+                        "/api/v1/auth/login",
+                        "/api/v1/kakao/skill"
                 )
         ).authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(
@@ -58,6 +66,10 @@ public class SecurityConfig {
                 .requestMatchers(
                         "/api/v1/health",
                         "/api/v1/csrf",
+                        "/api/v1/auth/social/providers",
+                        "/api/v1/kakao/skill",
+                        "/oauth2/**",
+                        "/login/oauth2/**",
                         "/actuator/health",
                         "/actuator/health/**"
                 ).permitAll()
@@ -66,6 +78,14 @@ public class SecurityConfig {
                 .authenticationEntryPoint(securityErrorHandler)
                 .accessDeniedHandler(securityErrorHandler)
         );
+
+        if (clientRegistrationRepository.isPresent()
+                && socialSuccessHandler.isPresent()
+                && socialFailureHandler.isPresent()) {
+            http.oauth2Login(oauth -> oauth
+                    .successHandler(socialSuccessHandler.get())
+                    .failureHandler(socialFailureHandler.get()));
+        }
 
         return http.build();
     }

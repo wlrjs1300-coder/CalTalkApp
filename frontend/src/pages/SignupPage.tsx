@@ -1,12 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router';
 import { signup } from '../api/auth';
 import { ApiError, fieldErrorMap } from '../api/errors';
+import { BrandLogo } from '../components/common/BrandLogo';
 import { FormField } from '../components/common/FormField';
-import { CalendarIcon, ClockIcon, WarningIcon } from '../components/common/Icons';
+import { ClockIcon, WarningIcon } from '../components/common/Icons';
 import { PasswordField } from '../components/common/PasswordField';
 import { signupSchema, type SignupFormValues } from '../features/auth/schemas';
 
@@ -16,6 +17,11 @@ export function SignupPage() {
     resolver: zodResolver(signupSchema),
     defaultValues: { email: '', password: '', passwordConfirmation: '' },
   });
+  const password = useWatch({ control: form.control, name: 'password' });
+  const passwordConfirmation = useWatch({ control: form.control, name: 'passwordConfirmation' });
+  const hasValidLength = password.length >= 8 && password.length <= 64;
+  const passwordsMatch = passwordConfirmation.length > 0 && password === passwordConfirmation;
+
   const mutation = useMutation({
     mutationFn: (values: SignupFormValues) => signup(values),
     onSuccess: (response) => {
@@ -40,14 +46,16 @@ export function SignupPage() {
       : undefined;
 
   return (
-    <main className="auth-page">
+    <main className="auth-page signup-page">
       <section className="auth-intro">
-        <div className="auth-brand">
-          <span className="brand-mark">
-            <CalendarIcon />
-          </span>
-          <span>CalTalk</span>
-        </div>
+        <header className="signup-mobile-header">
+          <div className="auth-brand">
+            <BrandLogo />
+            <span className="brand-wordmark">
+              Cal<strong>Talk</strong>
+            </span>
+          </div>
+        </header>
         <div className="auth-message">
           <p className="eyebrow">차분하게 시작하는 하루</p>
           <h1>
@@ -57,7 +65,7 @@ export function SignupPage() {
           </h1>
           <p>일정을 모아 보고, 겹치는 시간을 미리 확인하는 간결한 캘린더를 시작하세요.</p>
         </div>
-        <ul className="auth-benefits" aria-label="가입 후 이용할 수 있는 기능">
+        <ul className="auth-benefits auth-benefits-two" aria-label="가입 후 이용할 수 있는 기능">
           <li>
             <ClockIcon />
             <span>
@@ -75,7 +83,7 @@ export function SignupPage() {
       <section className="card auth-card" aria-labelledby="signup-title">
         <p className="auth-card-kicker">가볍게 시작해 보세요</p>
         <h2 id="signup-title">회원가입</h2>
-        <p className="muted">두 가지 정보만 입력하면 바로 시작할 수 있어요.</p>
+        <p className="muted">이메일과 비밀번호로 간단하게 시작하세요.</p>
         {errorMessage ? (
           <div className="alert" role="alert">
             {errorMessage}
@@ -95,7 +103,6 @@ export function SignupPage() {
             id="password"
             label="비밀번호"
             placeholder="8자 이상 입력하세요"
-            hint="8~64자로 입력해 주세요."
             autoComplete="new-password"
             error={form.formState.errors.password?.message}
             {...form.register('password')}
@@ -108,10 +115,18 @@ export function SignupPage() {
             error={form.formState.errors.passwordConfirmation?.message}
             {...form.register('passwordConfirmation')}
           />
+          <div className="password-checks" aria-live="polite">
+            <span className={hasValidLength ? 'is-complete' : undefined}>
+              <span aria-hidden="true">{hasValidLength ? '✓' : '○'}</span> 8~64자
+            </span>
+            <span className={passwordsMatch ? 'is-complete' : undefined}>
+              <span aria-hidden="true">{passwordsMatch ? '✓' : '○'}</span> 비밀번호 일치
+            </span>
+          </div>
           <div className="timezone-preview" role="note">
             <ClockIcon />
             <span>
-              <strong>기본 표시 시간대</strong>아시아 · 서울 (로그인 후 설정에서 변경 가능)
+              <strong>아시아 · 서울 시간</strong>로그인 후 설정에서 변경할 수 있어요.
             </span>
           </div>
           <button

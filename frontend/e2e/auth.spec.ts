@@ -71,7 +71,7 @@ test('signs up, rejects duplicates and bad credentials, restores and ends the se
   await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: '로그아웃' }).click();
-  await expect(page).toHaveURL(/\/login$/u);
+  await expect(page).toHaveURL(/\/welcome$/u);
   const rejectedReuseStatus = await page.evaluate(async (apiBaseUrl) => {
     const response = await fetch(`${apiBaseUrl}/api/v1/users/me`, {
       credentials: 'include',
@@ -80,7 +80,7 @@ test('signs up, rejects duplicates and bad credentials, restores and ends the se
   }, E2E_API_BASE_URL);
   expect(rejectedReuseStatus).toBe(401);
   await page.goto('/');
-  await expect(page).toHaveURL(/\/login$/u);
+  await expect(page).toHaveURL(/\/welcome$/u);
 
   await cleanupAccount(page, email);
 });

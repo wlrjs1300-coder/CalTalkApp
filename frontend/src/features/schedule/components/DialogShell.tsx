@@ -27,8 +27,12 @@ export function DialogShell({
     dialogRef.current
       ?.querySelector<HTMLElement>('input, button:not([disabled]), select, textarea, [href]')
       ?.focus();
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !closeDisabled) onClose();
+      if (event.key === 'Escape' && !closeDisabled) {
+        onClose();
+      }
+
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusable = [
         ...dialogRef.current.querySelectorAll<HTMLElement>(
@@ -47,6 +51,7 @@ export function DialogShell({
         first?.focus();
       }
     };
+
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
@@ -63,7 +68,7 @@ export function DialogShell({
         if (event.target === event.currentTarget && !closeDisabled) onClose();
       }}
     >
-      <div
+      <section
         className="card dialog"
         role="dialog"
         aria-modal="true"
@@ -73,22 +78,22 @@ export function DialogShell({
         ref={dialogRef as RefObject<HTMLDivElement>}
       >
         <div className="dialog-header">
-          <div>
+          <div className="dialog-title-block">
             <h2 id={titleId}>{title}</h2>
             {description ? <p id={descriptionId}>{description}</p> : null}
           </div>
           <button
-            className="icon-button"
+            className="dialog-handle"
             type="button"
-            aria-label="닫기"
+            aria-label="모달 닫기"
             disabled={closeDisabled}
             onClick={onClose}
           >
             ×
           </button>
         </div>
-        {children}
-      </div>
+        <div className="dialog-body">{children}</div>
+      </section>
     </div>
   );
 }

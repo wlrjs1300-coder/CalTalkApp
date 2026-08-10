@@ -44,8 +44,42 @@ export interface LoginResponse {
   timezone: string;
 }
 
+export interface SocialProvider {
+  id: 'kakao' | 'naver' | 'google';
+  name: string;
+}
+
 export interface CurrentUser {
   email: string;
   timezone: string;
   createdAt: string;
+  chatPreferences?: ChatPreferences;
+}
+
+export interface ChatPreferences {
+  replyStyle: 'CONCISE' | 'STANDARD' | 'ASSISTANT' | 'BUSINESS' | 'FRIENDLY';
+  replyDensity: 'ESSENTIAL' | 'STANDARD' | 'DETAILED';
+  replyLayout: 'COMPACT' | 'BALANCED' | 'SECTIONED';
+  emojiLevel: 'NONE' | 'MINIMAL' | 'BALANCED';
+  timeFormat: 'TWELVE_HOUR' | 'TWENTY_FOUR_HOUR';
+  confirmCreate: boolean;
+  confirmUpdate: boolean;
+  defaultDurationMinutes: 30 | 60 | 120;
+  defaultReminderMinutes: Array<60 | 1440 | 4320 | 10080>;
+  defaultQueryRange: 'TODAY' | 'THREE_DAYS' | 'THIS_WEEK' | 'NEXT_FIVE';
+  dailySummaryEnabled: boolean;
+  dailySummaryTime: string;
+  weeklySummaryEnabled: boolean;
+  weeklySummaryDay: number;
+  weeklySummaryTime: string;
+}
+
+export interface KakaoLinkStatus {
+  linked: boolean;
+  linkedAt: string | null;
+}
+
+export interface KakaoConnectionCode {
+  code: string;
+  expiresAt: string;
 }

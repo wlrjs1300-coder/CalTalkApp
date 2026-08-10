@@ -1,8 +1,10 @@
 import type { PropsWithChildren } from 'react';
-import { CalendarIcon, SettingsIcon } from '../common/Icons';
+import { BrandLogo } from '../common/BrandLogo';
+import { SettingsIcon } from '../common/Icons';
 
 interface AppLayoutProps extends PropsWithChildren {
   email: string;
+  mainClassName?: string;
   onOpenSettings: () => void;
   onLogout: () => void;
   logoutPending?: boolean;
@@ -11,6 +13,7 @@ interface AppLayoutProps extends PropsWithChildren {
 export function AppLayout({
   children,
   email,
+  mainClassName,
   onOpenSettings,
   onLogout,
   logoutPending,
@@ -19,10 +22,10 @@ export function AppLayout({
     <div className="app-shell">
       <header className="app-header">
         <a className="brand" href="/" aria-label="CalTalk 홈">
-          <span className="brand-mark brand-mark-small">
-            <CalendarIcon />
+          <BrandLogo compact />
+          <span className="brand-wordmark">
+            Cal<strong>Talk</strong>
           </span>
-          <span>CalTalk</span>
         </a>
         <nav className="header-actions" aria-label="사용자 메뉴">
           <span className="header-email" title={email}>
@@ -42,7 +45,7 @@ export function AppLayout({
           </button>
         </nav>
       </header>
-      <main className="app-main">{children}</main>
+      <main className={`app-main${mainClassName ? ` ${mainClassName}` : ''}`}>{children}</main>
     </div>
   );
 }

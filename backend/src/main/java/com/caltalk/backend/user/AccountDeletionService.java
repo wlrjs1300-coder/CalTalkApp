@@ -45,7 +45,8 @@ public class AccountDeletionService {
             HttpServletResponse response
     ) {
         User user = findCurrentUser(authentication, request, response);
-        if (!passwordEncoder.matches(deleteRequest.currentPassword(), user.getPasswordHash())) {
+        if (user.getPasswordHash() == null
+                || !passwordEncoder.matches(deleteRequest.currentPassword(), user.getPasswordHash())) {
             throw new InvalidCredentialsException();
         }
 

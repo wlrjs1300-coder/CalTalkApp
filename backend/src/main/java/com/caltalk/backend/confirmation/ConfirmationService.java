@@ -337,13 +337,15 @@ public class ConfirmationService {
             throw new ConflictAcknowledgementRequiredException();
         }
 
-        Schedule schedule = scheduleRepository.saveAndFlush(new Schedule(
+        Schedule schedule = new Schedule(
                 user,
                 confirmation.getTitle(),
                 confirmation.getLocationValue(),
                 confirmation.getStartAt(),
                 confirmation.getEndAt()
-        ));
+        );
+        schedule.changeReminderMinutes(user.getDefaultReminderMinutes());
+        schedule = scheduleRepository.saveAndFlush(schedule);
         historyRepository.save(ScheduleChangeHistory.created(schedule, user));
         confirmation.consume(Instant.now());
         return ScheduleResponse.from(schedule);

@@ -1,0 +1,2 @@
+ALTER TABLE schedules
+    ADD COLUMN reminder_minutes VARCHAR(100) NOT NULL DEFAULT '1440';

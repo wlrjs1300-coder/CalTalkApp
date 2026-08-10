@@ -81,4 +81,17 @@ public class UserController {
                 .cacheControl(CacheControl.noStore())
                 .build();
     }
+
+    @PatchMapping("/me/chat-preferences")
+    public ResponseEntity<CurrentUserResponse> updateChatPreferences(
+            Authentication authentication,
+            @Valid @RequestBody UpdateChatPreferencesRequest updateRequest,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(currentUserService.updateChatPreferences(
+                        authentication, updateRequest, request, response));
+    }
 }

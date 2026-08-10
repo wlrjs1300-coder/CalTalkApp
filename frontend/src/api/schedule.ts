@@ -7,7 +7,10 @@ export interface ScheduleListItem {
   endAt: string;
   location: string | null;
   version: number;
+  reminderMinutes?: ReminderMinutes[];
 }
+
+export type ReminderMinutes = 60 | 1440 | 4320 | 10080;
 
 export interface ScheduleDetail extends ScheduleListItem {
   createdAt: string;
@@ -23,6 +26,7 @@ export interface CreateScheduleRequest {
   startAt: string;
   endAt: string;
   location: string | null;
+  reminderMinutes?: ReminderMinutes[];
 }
 
 export interface UpdateScheduleRequest {
@@ -31,6 +35,7 @@ export interface UpdateScheduleRequest {
   startAt?: string;
   endAt?: string;
   location?: string | null;
+  reminderMinutes?: ReminderMinutes[];
 }
 
 export function getSchedules(from: string, to: string, signal?: AbortSignal) {

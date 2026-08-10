@@ -8,17 +8,17 @@ export const scheduleFormSchema = z
       .string()
       .trim()
       .min(1, '제목을 입력해 주세요.')
-      .max(200, '제목은 200자 이하여야 합니다.'),
+      .max(200, '제목은 200자 이하로 입력해 주세요.'),
     startAt: z.string().min(1, '시작 시간을 입력해 주세요.'),
     endAt: z.string().min(1, '종료 시간을 입력해 주세요.'),
-    location: z.string().max(200, '장소는 200자 이하여야 합니다.'),
+    location: z.string().max(200, '장소는 200자 이하로 입력해 주세요.'),
   })
   .superRefine((values, context) => {
     if (values.startAt && values.endAt && values.startAt >= values.endAt) {
       context.addIssue({
         code: 'custom',
         path: ['endAt'],
-        message: '종료 시간은 시작 시간보다 뒤여야 합니다.',
+        message: '종료 시간은 시작 시간보다 늦어야 합니다.',
       });
     }
   });

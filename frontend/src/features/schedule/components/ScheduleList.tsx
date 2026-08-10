@@ -1,5 +1,6 @@
 import type { ScheduleListItem } from '../../../api/schedule';
 import { ApiError } from '../../../api/errors';
+import { CalendarIcon } from '../../../components/common/Icons';
 import { ScheduleListItem as Item } from './ScheduleListItem';
 
 interface ScheduleListProps {
@@ -7,6 +8,7 @@ interface ScheduleListProps {
   timeZone: string;
   isLoading: boolean;
   error: unknown;
+  windowLabel?: string;
   onRetry: () => void;
   onSelect: (id: number) => void;
   onCreate: () => void;
@@ -17,6 +19,7 @@ export function ScheduleList({
   timeZone,
   isLoading,
   error,
+  windowLabel = '일정',
   onRetry,
   onSelect,
   onCreate,
@@ -49,12 +52,12 @@ export function ScheduleList({
     return (
       <div className="empty-state">
         <span className="empty-illustration" aria-hidden="true">
-          ✓
+          <CalendarIcon />
         </span>
-        <h3>아직 일정이 없습니다</h3>
-        <p>첫 일정을 등록하고 여유로운 하루를 계획해 보세요.</p>
+        <h3>{windowLabel}이(가) 아직 없어요</h3>
+        <p>중요한 약속부터 먼저 기록해서 바로 일정을 시작해 보세요.</p>
         <button type="button" className="primary-button compact-button" onClick={onCreate}>
-          첫 일정 만들기
+          <span aria-hidden="true">＋</span> 첫 일정 만들기
         </button>
       </div>
     );

@@ -56,6 +56,13 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
 
     Optional<Schedule> findByIdAndOwner(Long id, User owner);
 
+    @Query("""
+            select schedule from Schedule schedule join fetch schedule.owner
+            where schedule.startAt >= :from and schedule.startAt < :to
+            order by schedule.startAt asc
+            """)
+    List<Schedule> findUpcomingForReminders(@Param("from") Instant from, @Param("to") Instant to);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from Schedule schedule where schedule.owner = :owner")
     void deleteAllByOwner(@Param("owner") User owner);

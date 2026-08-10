@@ -24,6 +24,8 @@ import jakarta.servlet.http.HttpServletResponse;
 @Service
 public class ScheduleService {
 
+    private static final java.util.Set<Integer> ALLOWED_REMINDERS = java.util.Set.of(60, 1440, 4320, 10080);
+
     private final CurrentScheduleUserService currentUserService;
     private final ScheduleRepository scheduleRepository;
     private final ScheduleChangeHistoryRepository historyRepository;
@@ -54,6 +56,8 @@ public class ScheduleService {
         if (!endAt.isAfter(startAt)) {
             throw new InvalidScheduleTimeRangeException();
         }
+        List<Integer> reminderMinutes = requestBody.reminderMinutes() == null
+                ? user.getDefaultReminderMinutes() : validatedReminders(requestBody.reminderMinutes());
 
         List<Schedule> conflicts = scheduleRepository.findConflicts(user, startAt, endAt);
         if (!conflicts.isEmpty()) {
@@ -71,13 +75,15 @@ public class ScheduleService {
             );
         }
 
-        Schedule schedule = scheduleRepository.saveAndFlush(new Schedule(
+        Schedule schedule = new Schedule(
                 user,
                 requestBody.title(),
                 requestBody.location(),
                 startAt,
                 endAt
-        ));
+        );
+        schedule.changeReminderMinutes(reminderMinutes);
+        schedule = scheduleRepository.saveAndFlush(schedule);
         historyRepository.save(ScheduleChangeHistory.created(schedule, user));
         return ScheduleResponse.from(schedule);
     }
@@ -137,13 +143,16 @@ public class ScheduleService {
                 ? requestBody.startAt().toInstant() : schedule.getStartAt();
         Instant endAt = requestBody.endAtPresent()
                 ? requestBody.endAt().toInstant() : schedule.getEndAt();
+        List<Integer> reminderMinutes = requestBody.reminderMinutesPresent()
+                ? validatedReminders(requestBody.reminderMinutes()) : schedule.getReminderMinutes();
         if (!endAt.isAfter(startAt)) {
             throw new InvalidScheduleTimeRangeException();
         }
         if (title.equals(schedule.getTitle())
                 && java.util.Objects.equals(location, schedule.getLocation())
                 && startAt.equals(schedule.getStartAt())
-                && endAt.equals(schedule.getEndAt())) {
+                && endAt.equals(schedule.getEndAt())
+                && reminderMinutes.equals(schedule.getReminderMinutes())) {
             return ScheduleResponse.from(schedule);
         }
 
@@ -163,6 +172,7 @@ public class ScheduleService {
         Instant oldStartAt = schedule.getStartAt();
         Instant oldEndAt = schedule.getEndAt();
         schedule.update(title, location, startAt, endAt);
+        schedule.changeReminderMinutes(reminderMinutes);
         scheduleRepository.saveAndFlush(schedule);
         historyRepository.save(ScheduleChangeHistory.updated(
                 schedule, user, oldTitle, oldStartAt, oldEndAt, oldLocation));
@@ -196,7 +206,7 @@ public class ScheduleService {
             throw new InvalidScheduleUpdateException("version", "REQUIRED", "A non-negative version is required.");
         }
         if (!body.titlePresent() && !body.startAtPresent()
-                && !body.endAtPresent() && !body.locationPresent()) {
+                && !body.endAtPresent() && !body.locationPresent() && !body.reminderMinutesPresent()) {
             throw new InvalidScheduleUpdateException("request", "REQUIRED", "At least one field must be changed.");
         }
         if (body.titlePresent() && (body.title() == null || body.title().isBlank())) {
@@ -214,5 +224,14 @@ public class ScheduleService {
         if (body.endAtPresent() && body.endAt() == null) {
             throw new InvalidScheduleUpdateException("endAt", "REQUIRED", "End time is required.");
         }
+        if (body.reminderMinutesPresent()) validatedReminders(body.reminderMinutes());
+    }
+
+    private static List<Integer> validatedReminders(List<Integer> values) {
+        if (values == null || values.size() > 4 || values.stream().anyMatch(value -> !ALLOWED_REMINDERS.contains(value))
+                || values.stream().distinct().count() != values.size()) {
+            throw new InvalidScheduleUpdateException("reminderMinutes", "INVALID", "지원하지 않는 알림 시점입니다.");
+        }
+        return values.stream().sorted(java.util.Comparator.reverseOrder()).toList();
     }
 }
