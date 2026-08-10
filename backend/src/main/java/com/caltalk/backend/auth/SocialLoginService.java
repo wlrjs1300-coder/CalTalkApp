@@ -23,8 +23,7 @@ public class SocialLoginService {
     @Transactional
     public String login(SocialProfile profile) {
         return socialIdentityRepository
-                .findByProviderAndProviderSubject(profile.provider(), profile.subject())
-                .map(identity -> identity.getUser().getEmail())
+                .findUserEmailByProviderAndProviderSubject(profile.provider(), profile.subject())
                 .orElseGet(() -> linkNewIdentity(profile));
     }
 
