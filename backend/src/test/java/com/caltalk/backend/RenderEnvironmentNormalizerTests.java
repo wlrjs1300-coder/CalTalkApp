@@ -9,7 +9,14 @@ class RenderEnvironmentNormalizerTests {
     @Test
     void convertsRenderPostgresUrlToJdbcUrl() {
         assertThat(RenderEnvironmentNormalizer.asJdbcUrl("postgresql://user:pass@db:5432/caltalk"))
-                .isEqualTo("jdbc:postgresql://user:pass@db:5432/caltalk");
+                .isEqualTo("jdbc:postgresql://db:5432/caltalk");
+    }
+
+    @Test
+    void suppliesPostgresDefaultPortAndPreservesQuery() {
+        assertThat(RenderEnvironmentNormalizer.asJdbcUrl(
+                "postgresql://user:pass@db.internal/caltalk?sslmode=require"))
+                .isEqualTo("jdbc:postgresql://db.internal:5432/caltalk?sslmode=require");
     }
 
     @Test
