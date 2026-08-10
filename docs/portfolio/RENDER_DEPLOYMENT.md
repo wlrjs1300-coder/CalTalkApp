@@ -46,6 +46,8 @@ Backend는 Render의 `postgresql://user:password@host/database` URL에서 인증
 시작 시 `jdbc:postgresql://host:5432/database`로 변환합니다. 인증은 별도로 연결된
 `DB_USERNAME`과 `DB_PASSWORD`를 사용합니다.
 Backend와 frontend는 protocol이 없는 Render hostname을 HTTPS origin으로 변환합니다.
+Frontend Nginx는 공개 Render backend로 프록시할 때 backend hostname을 TLS SNI와 Host header로
+전달합니다. 원래 사용자가 접속한 frontend hostname은 `X-Forwarded-Host`에 보존합니다.
 
 ## 최초 입력이 필요한 비밀값
 
