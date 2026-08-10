@@ -16,8 +16,6 @@ import org.springframework.security.web.authentication.session.SessionAuthentica
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
 
-import com.caltalk.backend.user.User;
-
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -64,9 +62,9 @@ public class SocialAuthenticationSuccessHandler implements AuthenticationSuccess
             failureHandler.onAuthenticationFailure(request, response, exception);
             return;
         }
-        User user = socialLoginService.login(profile);
+        String email = socialLoginService.login(profile);
         Authentication sessionAuthentication = UsernamePasswordAuthenticationToken.authenticated(
-                user.getEmail(),
+                email,
                 null,
                 List.of()
         );
