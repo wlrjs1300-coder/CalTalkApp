@@ -4,8 +4,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class KakaoSkillResponseFactory {
+    private static final Pattern SELECTION_LINE = Pattern.compile("(?m)^(\\d{1,2})\\.\\s+(.+)$");
     private KakaoSkillResponseFactory() {
     }
 
@@ -23,6 +26,11 @@ final class KakaoSkillResponseFactory {
     }
 
     private static Map<String, Object> output(String message) {
+        if (isSelectionPrompt(message)) {
+            int lineBreak = message.indexOf('\n');
+            String description = lineBreak > 0 ? message.substring(lineBreak + 1) : message;
+            return textCard("일정을 선택해 주세요", clamp(description, 340), List.of());
+        }
         if (message.contains("등록하려면 '확인'")) {
             return textCard("일정을 등록할까요?", beforeInstruction(message), confirmButtons("등록하기"));
         }
@@ -66,7 +74,20 @@ final class KakaoSkillResponseFactory {
 
     private static List<Map<String, String>> quickReplies(String message) {
         List<Map<String, String>> replies = new ArrayList<>();
-        if (message.contains("등록된 일정이 없") || message.contains("일정이에요") || isCompleted(message)) {
+        if (isSelectionPrompt(message)) {
+            Matcher matcher = SELECTION_LINE.matcher(message);
+            while (matcher.find() && replies.size() < 5) {
+                String number = matcher.group(1);
+                String label = selectionLabel(matcher.group(2));
+                replies.add(messageButton(label, label));
+            }
+            replies.add(messageButton("취소", "취소"));
+        } else if (isRecoverableError(message)) {
+            replies.add(messageButton("다시 시도", "다시 시도"));
+            replies.add(messageButton("오늘 일정", "오늘 일정 알려줘"));
+        } else if (message.contains("등록된 일정이 없") || message.contains("일정이 없어요")
+                || message.contains("일정이 없습니다")
+                || message.contains("일정이에요") || isCompleted(message)) {
             replies.add(messageButton("오늘 일정", "오늘 일정 알려줘"));
             replies.add(messageButton("이번 주 일정", "이번 주 일정 알려줘"));
         } else if (message.contains("어느 날짜") || message.contains("날짜를")) {
@@ -75,6 +96,22 @@ final class KakaoSkillResponseFactory {
             replies.add(messageButton("이번 주", "이번 주"));
         }
         return replies;
+    }
+
+    private static String selectionLabel(String detail) {
+        String compact = detail.replaceAll("\\s+", " ").trim();
+        int separator = compact.indexOf(' ');
+        return separator > 0 ? compact.substring(0, separator) : compact;
+    }
+
+    private static boolean isSelectionPrompt(String message) {
+        return message.contains("어떤 일정을 ") && message.contains("할까요?")
+                && SELECTION_LINE.matcher(message).find();
+    }
+
+    private static boolean isRecoverableError(String message) {
+        return message.contains("처리하지 못했") || message.contains("중단되었")
+                || message.contains("잠시 후 다시") || message.contains("응답이 늦");
     }
 
     private static boolean isCompleted(String message) {

@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,11 @@ import com.caltalk.backend.user.User;
 public class KakaoScheduleAssistantService {
     private static final DateTimeFormatter TWELVE_HOUR_FORMAT = DateTimeFormatter.ofPattern("a h:mm", Locale.KOREAN);
     private static final DateTimeFormatter TWENTY_FOUR_HOUR_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
+    private static final Pattern EXPLICIT_UPDATE_START = Pattern.compile(
+            "(오전|오후)?\\s*(\\d{1,2})시(?:\\s*(\\d{1,2})분)?\\s*(?:로|으로)\\s*(?:변경|바꿔|옮겨)");
+    private static final Pattern EXPLICIT_UPDATE_TARGET = Pattern.compile(
+            "(?:오전|오후)?\\s*\\d{1,2}시(?:\\s*\\d{1,2}분)?\\s+(.+?)(?:을|를)\\s+(?=(?:오전|오후)?\\s*\\d{1,2}시)");
+    private static final Pattern RELATIVE_DATE = Pattern.compile("(오늘|내일|모레)");
 
     private final KakaoLinkService linkService;
     private final NaturalLanguageProvider languageProvider;
@@ -95,27 +102,31 @@ public class KakaoScheduleAssistantService {
                 return selectCandidate(stateKey, pendingSelection, selectedIndex, zone, user);
             }
             if (isConfirmation(utterance)) {
-                ScheduleCommand pending = stateStore.get(stateKey).orElse(null);
+                ScheduleCommand pending = stateStore.take(stateKey).orElse(null);
                 if (pending != null) {
-                    stateStore.delete(stateKey);
                     return creationService.create(user, zone, now, pending).message();
                 }
-                ChatbotCommandStateStore.PendingDelete pendingDelete = stateStore.getDelete(stateKey).orElse(null);
+                ChatbotCommandStateStore.PendingDelete pendingDelete = stateStore.takeDelete(stateKey).orElse(null);
                 if (pendingDelete != null) {
-                    stateStore.deleteDelete(stateKey);
                     return deletionService.delete(user, pendingDelete);
                 }
-                ChatbotCommandStateStore.PendingUpdate pendingUpdate = stateStore.getUpdate(stateKey).orElse(null);
+                ChatbotCommandStateStore.PendingUpdate pendingUpdate = stateStore.takeUpdate(stateKey).orElse(null);
                 if (pendingUpdate != null) {
-                    stateStore.deleteUpdate(stateKey);
                     return updateService.update(user, pendingUpdate);
                 }
                 return "확인할 일정 요청이 없어요.";
+            }
+            if (isRetry(utterance)) {
+                utterance = stateStore.getLastRequest(stateKey).orElse(null);
+                if (utterance == null) return "다시 시도할 최근 요청이 없어요. 원하시는 일정을 말씀해 주세요.";
+            } else {
+                stateStore.saveLastRequest(stateKey, utterance);
             }
             ScheduleCommand draft = stateStore.get(stateKey).orElse(null);
             String analysisInput = draft != null && draft.status() == CommandStatus.NEEDS_CLARIFICATION
                     ? mergePrompt(draft, utterance) : utterance;
             ScheduleCommand command = languageProvider.analyze(analysisInput, new AnalysisContext(now));
+            command = applyExplicitUpdateStart(command, utterance);
             command = applyDefaultDuration(user, command);
             command = applyDefaultQueryRange(user, command);
             if (command.status() == CommandStatus.NEEDS_CLARIFICATION) {
@@ -139,6 +150,12 @@ public class KakaoScheduleAssistantService {
         }
     }
 
+    private static boolean isRetry(String utterance) {
+        if (utterance == null) return false;
+        String value = utterance.replaceAll("[\\s.!?]", "");
+        return value.equals("다시시도") || value.equals("재시도");
+    }
+
     private String prepareCreation(String stateKey, ScheduleCommand command) {
         stateStore.deleteDelete(stateKey);
         stateStore.deleteUpdate(stateKey);
@@ -149,7 +166,8 @@ public class KakaoScheduleAssistantService {
     }
 
     private static ScheduleCommand applyDefaultDuration(User user, ScheduleCommand command) {
-        if (command.intent() != com.caltalk.backend.ai.ScheduleIntent.CREATE_EVENT
+        if ((command.intent() != com.caltalk.backend.ai.ScheduleIntent.CREATE_EVENT
+                && command.intent() != com.caltalk.backend.ai.ScheduleIntent.UPDATE_EVENT)
                 || command.startTime() == null || command.startTime().isBlank()
                 || (command.endTime() != null && !command.endTime().isBlank())) {
             return command;
@@ -159,11 +177,44 @@ public class KakaoScheduleAssistantService {
         String endTime = start.plusMinutes(user.getChatDefaultDurationMinutes())
                 .format(DateTimeFormatter.ofPattern("HH:mm"));
         List<String> missing = command.missingFields().stream()
-                .filter(field -> !"endTime".equals(field))
+                .filter(field -> !"endTime".equals(field) && !"newDateTime".equals(field))
                 .toList();
         CommandStatus status = missing.isEmpty() ? CommandStatus.READY : command.status();
         return new ScheduleCommand(command.schemaVersion(), command.intent(), status, command.title(),
                 command.dateExpression(), command.startTime(), endTime, command.targetExpression(),
+                missing, command.ambiguities(), command.userFacingQuestion());
+    }
+
+    private static ScheduleCommand applyExplicitUpdateStart(ScheduleCommand command, String utterance) {
+        if (utterance == null || utterance.isBlank()) {
+            return command;
+        }
+        Matcher matcher = EXPLICIT_UPDATE_START.matcher(utterance);
+        if (!matcher.find()) return command;
+
+        int hour = Integer.parseInt(matcher.group(2));
+        int minute = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
+        if (hour > 23 || minute > 59) return command;
+        if ("오후".equals(matcher.group(1)) && hour < 12) hour += 12;
+        if ("오전".equals(matcher.group(1)) && hour == 12) hour = 0;
+
+        String startTime = LocalTime.of(hour, minute).format(TWENTY_FOUR_HOUR_FORMAT);
+        String dateExpression = command.dateExpression();
+        if (dateExpression == null || dateExpression.isBlank()) {
+            Matcher dateMatcher = RELATIVE_DATE.matcher(utterance);
+            if (dateMatcher.find()) dateExpression = dateMatcher.group(1);
+        }
+        String targetExpression = command.targetExpression();
+        Matcher targetMatcher = EXPLICIT_UPDATE_TARGET.matcher(utterance);
+        if (targetMatcher.find()) targetExpression = targetMatcher.group(1).trim();
+        List<String> missing = new ArrayList<>();
+        if (dateExpression == null || dateExpression.isBlank()) missing.add("date");
+        if (targetExpression == null || targetExpression.isBlank()) missing.add("targetEvent");
+        missing.add("endTime");
+        CommandStatus status = missing.isEmpty() ? CommandStatus.READY : command.status();
+        return new ScheduleCommand(command.schemaVersion(), com.caltalk.backend.ai.ScheduleIntent.UPDATE_EVENT,
+                status, command.title(),
+                dateExpression, startTime, null, targetExpression,
                 missing, command.ambiguities(), command.userFacingQuestion());
     }
 
@@ -212,7 +263,7 @@ public class KakaoScheduleAssistantService {
         stateStore.saveDelete(stateKey, new ChatbotCommandStateStore.PendingDelete(
                 targetSchedule.getId(), targetSchedule.getVersion(), targetSchedule.getTitle(),
                 command.dateExpression()));
-        return "'%s' 일정을 삭제할까요?\n삭제하려면 '확인', 취소하려면 '취소'라고 답해 주세요.".formatted(
+        return "'%s' 일정\n삭제하려면 '확인', 취소하려면 '취소'라고 답해 주세요.".formatted(
                 targetSchedule.getTitle());
     }
 
@@ -251,7 +302,7 @@ public class KakaoScheduleAssistantService {
             return updateService.update(user, pendingUpdate);
         }
         stateStore.saveUpdate(stateKey, pendingUpdate);
-        return "'%s' 일정을 %s부터 %s까지로 변경할까요?\n변경하려면 '확인', 취소하려면 '취소'라고 답해 주세요.".formatted(
+        return "'%s' 일정\n%s~%s\n변경하려면 '확인', 취소하려면 '취소'라고 답해 주세요.".formatted(
                 schedule.getTitle(), command.startTime(), command.endTime());
     }
 
@@ -275,8 +326,12 @@ public class KakaoScheduleAssistantService {
         if (selection.action() == ChatbotCommandStateStore.SelectionAction.DELETE) {
             stateStore.saveDelete(stateKey, new ChatbotCommandStateStore.PendingDelete(
                     candidate.scheduleId(), candidate.version(), candidate.title(), selection.dateLabel()));
-            return "'%s' 일정을 삭제할까요?\n삭제하려면 '확인', 취소하려면 '취소'라고 답해 주세요."
-                    .formatted(candidate.title());
+            String start = Instant.parse(candidate.startAt()).atZone(zone)
+                    .format(DateTimeFormatter.ofPattern("HH:mm"));
+            String end = Instant.parse(candidate.endAt()).atZone(zone)
+                    .format(DateTimeFormatter.ofPattern("HH:mm"));
+            return "'%s' 일정\n%s~%s\n삭제하려면 '확인', 취소하려면 '취소'라고 답해 주세요."
+                    .formatted(candidate.title(), start, end);
         }
         ChatbotCommandStateStore.PendingUpdate pendingUpdate = new ChatbotCommandStateStore.PendingUpdate(
                 candidate.scheduleId(), candidate.version(), candidate.title(),
@@ -289,7 +344,7 @@ public class KakaoScheduleAssistantService {
                 .format(DateTimeFormatter.ofPattern("HH:mm"));
         String end = Instant.parse(selection.newEndAt()).atZone(zone)
                 .format(DateTimeFormatter.ofPattern("HH:mm"));
-        return "'%s' 일정을 %s부터 %s까지로 변경할까요?\n변경하려면 '확인', 취소하려면 '취소'라고 답해 주세요."
+        return "'%s' 일정\n%s~%s\n변경하려면 '확인', 취소하려면 '취소'라고 답해 주세요."
                 .formatted(candidate.title(), start, end);
     }
 
@@ -374,7 +429,7 @@ public class KakaoScheduleAssistantService {
         String label = range.fromDate().equals(range.toDateExclusive().minusDays(1))
                 ? range.fromDate().getMonthValue() + "월 " + range.fromDate().getDayOfMonth() + "일"
                 : range.fromDate() + "부터 " + range.toDateExclusive().minusDays(1) + "까지";
-        if (found.isEmpty()) return label + "에는 등록된 일정이 없어요.";
+        if (found.isEmpty()) return label + " 일정이 없습니다.";
         String density = user.getChatReplyDensity();
         StringBuilder reply = new StringBuilder();
         if ("ESSENTIAL".equals(density)) {

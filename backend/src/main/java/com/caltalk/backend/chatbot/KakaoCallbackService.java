@@ -28,6 +28,8 @@ import tools.jackson.databind.ObjectMapper;
 public class KakaoCallbackService {
     private static final Logger log = LoggerFactory.getLogger(KakaoCallbackService.class);
     private static final int MAX_TEXT_LENGTH = 1_000;
+    private static final int MAX_DELIVERY_ATTEMPTS = 3;
+    private static final long[] RETRY_DELAYS_MILLIS = {250L, 750L};
 
     private final KakaoScheduleAssistantService assistantService;
     private final ObjectMapper objectMapper;
@@ -103,21 +105,45 @@ public class KakaoCallbackService {
     }
 
     private void deliverMessage(URI callbackUri, String replyMessage) throws Exception {
-            String message = replyMessage;
-            if (message.length() > MAX_TEXT_LENGTH) message = message.substring(0, MAX_TEXT_LENGTH);
-            Map<String, Object> payload = KakaoSkillResponseFactory.response(message);
-            HttpRequest request = HttpRequest.newBuilder(callbackUri)
-                    .timeout(Duration.ofSeconds(10))
-                    .header("Content-Type", "application/json; charset=utf-8")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build();
-            HttpResponse<String> response = httpClient.send(request,
-                    HttpResponse.BodyHandlers.ofString(java.nio.charset.StandardCharsets.UTF_8));
-            if (response.statusCode() / 100 == 2) {
-                log.info("Kakao callback delivered successfully");
-            } else {
-                log.warn("Kakao callback returned HTTP {}: {}", response.statusCode(), response.body());
+        String message = replyMessage;
+        if (message.length() > MAX_TEXT_LENGTH) message = message.substring(0, MAX_TEXT_LENGTH);
+        Map<String, Object> payload = KakaoSkillResponseFactory.response(message);
+        HttpRequest request = HttpRequest.newBuilder(callbackUri)
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json; charset=utf-8")
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build();
+        long startedAt = System.nanoTime();
+        for (int attempt = 1; attempt <= MAX_DELIVERY_ATTEMPTS; attempt++) {
+            try {
+                HttpResponse<String> response = httpClient.send(request,
+                        HttpResponse.BodyHandlers.ofString(java.nio.charset.StandardCharsets.UTF_8));
+                int status = response.statusCode();
+                if (status / 100 == 2) {
+                    log.info("Kakao callback delivered attempt={} elapsedMs={}", attempt, elapsedMillis(startedAt));
+                    return;
+                }
+                if (!retryableStatus(status) || attempt == MAX_DELIVERY_ATTEMPTS) {
+                    log.warn("Kakao callback rejected status={} attempt={} elapsedMs={}",
+                            status, attempt, elapsedMillis(startedAt));
+                    return;
+                }
+                log.warn("Kakao callback retry scheduled status={} attempt={}", status, attempt);
+            } catch (java.io.IOException exception) {
+                if (attempt == MAX_DELIVERY_ATTEMPTS) throw exception;
+                log.warn("Kakao callback retry scheduled cause={} attempt={}",
+                        exception.getClass().getSimpleName(), attempt);
             }
+            Thread.sleep(RETRY_DELAYS_MILLIS[attempt - 1]);
+        }
+    }
+
+    private static boolean retryableStatus(int status) {
+        return status == 408 || status == 425 || status == 429 || status >= 500;
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
     }
 
     static URI allowedCallbackUri(String callbackUrl) {
