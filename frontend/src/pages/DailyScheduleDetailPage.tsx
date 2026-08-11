@@ -455,7 +455,7 @@ export function DailyScheduleDetailPage() {
       </section>
 
       {settingsOpen ? (
-        <DialogShell title="설정" description="필요한 연결만 빠르게 관리해요." onClose={() => setSettingsOpen(false)}>
+        <DialogShell title="설정" onClose={() => setSettingsOpen(false)}>
           <SettingsPanel onSaved={() => setSettingsOpen(false)} />
         </DialogShell>
       ) : null}

@@ -48,7 +48,7 @@ class KakaoScheduleAssistantServiceTests {
                 mock(ChatbotScheduleUpdateService.class), clock);
 
         assertThat(service.reply("kakao-user", "내일 일정 알려줘"))
-                .isEqualTo("8월 5일에는 등록된 일정이 없어요.");
+                .isEqualTo("8월 5일 일정이 없습니다.");
     }
 
     @Test
@@ -68,7 +68,7 @@ class KakaoScheduleAssistantServiceTests {
                 mock(ChatbotScheduleUpdateService.class), Clock.systemUTC());
 
         assertThat(service.reply("kakao-user", "일정 알려줘"))
-                .contains("등록된 일정이 없어요.");
+                .contains("일정이 없습니다.");
     }
 
     @Test
@@ -150,7 +150,7 @@ class KakaoScheduleAssistantServiceTests {
         ScheduleCommand command = createCommand();
         when(links.linkedUser("kakao-user")).thenReturn(Optional.of(user));
         when(links.protectedExternalUserKey("kakao-user")).thenReturn("protected-key");
-        when(states.get("protected-key")).thenReturn(Optional.of(command));
+        when(states.take("protected-key")).thenReturn(Optional.of(command));
         when(creation.create(eq(user), any(), any(), eq(command))).thenReturn(
                 new ChatbotScheduleCreationService.CreationResult(
                         ChatbotScheduleCreationService.Status.CREATED, "등록했어요."));
@@ -159,7 +159,7 @@ class KakaoScheduleAssistantServiceTests {
                 mock(ChatbotScheduleDeletionService.class), mock(ChatbotScheduleUpdateService.class), Clock.systemUTC());
 
         assertThat(service.reply("kakao-user", "확인")).isEqualTo("등록했어요.");
-        verify(states).delete("protected-key");
+        verify(states).take("protected-key");
         verify(creation).create(eq(user), any(), any(), eq(command));
     }
 
@@ -181,7 +181,8 @@ class KakaoScheduleAssistantServiceTests {
 
         String reply = service.reply("kakao-user", "두 번째");
 
-        assertThat(reply).contains("팀 회의", "삭제할까요", "확인");
+        assertThat(reply).contains("팀 회의", "15:00~16:00", "확인")
+                .doesNotContain("삭제할까요");
         verify(states).deleteSelection("protected-key");
         verify(states).saveDelete(eq("protected-key"), eq(new ChatbotCommandStateStore.PendingDelete(
                 12L, 1L, "팀 회의", "내일")));
@@ -254,9 +255,33 @@ class KakaoScheduleAssistantServiceTests {
         KakaoScheduleAssistantService service = service(links, provider, states);
 
         assertThat(service.reply("kakao-user", "오후 일정"))
-                .contains("회의", "17:00부터 18:00까지", "확인");
+                .contains("회의", "17:00~18:00", "확인")
+                .doesNotContain("변경할까요");
         verify(states).saveUpdate(eq("protected-key"), eq(new ChatbotCommandStateStore.PendingUpdate(
                 12L, 1L, "회의", "2026-08-05T08:00:00Z", "2026-08-05T09:00:00Z", "내일")));
+    }
+
+    @Test
+    void extractsExplicitDestinationTimeAndAppliesDefaultUpdateDuration() {
+        User user = new User("user@example.com", "hash");
+        ScheduleCommand analyzed = new ScheduleCommand("1.0", ScheduleIntent.UNKNOWN,
+                CommandStatus.NEEDS_CLARIFICATION, null, null, null, "16:00", "내일 오후 3시 팀 회의",
+                List.of("targetEvent", "date", "startTime", "endTime", "newDateTime", "newStartAndEndTime"), List.of(),
+                "변경할 날짜와 시작·종료 시간을 다시 알려주세요.");
+
+        ScheduleCommand withStart = ReflectionTestUtils.invokeMethod(
+                KakaoScheduleAssistantService.class, "applyExplicitUpdateStart", analyzed,
+                "내일 오후 3시 팀 회의를 오후 4시로 변경해줘");
+        ScheduleCommand completed = ReflectionTestUtils.invokeMethod(
+                KakaoScheduleAssistantService.class, "applyDefaultDuration", user, withStart);
+
+        assertThat(completed.startTime()).isEqualTo("16:00");
+        assertThat(completed.endTime()).isEqualTo("17:00");
+        assertThat(completed.dateExpression()).isEqualTo("내일");
+        assertThat(completed.targetExpression()).isEqualTo("팀 회의");
+        assertThat(completed.intent()).isEqualTo(ScheduleIntent.UPDATE_EVENT);
+        assertThat(completed.status()).isEqualTo(CommandStatus.READY);
+        assertThat(completed.missingFields()).isEmpty();
     }
 
     private static KakaoScheduleAssistantService service(KakaoLinkService links,

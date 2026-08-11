@@ -77,7 +77,7 @@ export function DialogShell({
         tabIndex={-1}
         ref={dialogRef as RefObject<HTMLDivElement>}
       >
-        <div className="dialog-header">
+        <div className={`dialog-header${description ? '' : ' dialog-header--title-only'}`}>
           <div className="dialog-title-block">
             <h2 id={titleId}>{title}</h2>
             {description ? <p id={descriptionId}>{description}</p> : null}

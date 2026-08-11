@@ -84,3 +84,13 @@ The secret is independent from Kakao REST API keys and OAuth client secrets. Nev
 ## Security boundary
 
 The webhook is public because Kakao, not a browser session, calls it. Browser CSRF and CalTalk session authentication therefore do not apply to this route. Instead, the endpoint requires a dedicated high-entropy header secret. Account-level schedule access remains unavailable until Phase 2 verifies and stores the Kakao chatbot identity mapping.
+
+## Reliability behavior
+
+- Pending create, update, and delete confirmations are consumed atomically from Redis. Concurrent duplicate confirmation messages can apply a mutation at most once.
+- Callback delivery retries temporary network failures and HTTP 408, 425, 429, and 5xx responses up to three total attempts. Permanent 4xx responses are not retried.
+- Callback logs contain the attempt number, HTTP status, and elapsed time, but never the Kakao user ID or the full utterance.
+- Multi-match update and delete prompts expose numbered Kakao quick-reply buttons, plus a cancel action.
+- Temporary assistant failures expose a `다시 시도` action. CalTalk stores only the linked user's most recent request for ten minutes and re-analyzes it when that action is selected.
+
+These safeguards complement schedule ownership, version, and conflict checks. Language models still interpret text only; they never write schedule data directly.

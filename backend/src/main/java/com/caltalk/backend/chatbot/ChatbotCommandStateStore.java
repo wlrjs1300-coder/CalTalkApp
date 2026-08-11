@@ -19,6 +19,7 @@ public class ChatbotCommandStateStore {
     private static final String DELETE_PREFIX = "caltalk:kakao:pending-delete:";
     private static final String UPDATE_PREFIX = "caltalk:kakao:pending-update:";
     private static final String SELECTION_PREFIX = "caltalk:kakao:pending-selection:";
+    private static final String LAST_REQUEST_PREFIX = "caltalk:kakao:last-request:";
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -47,6 +48,16 @@ public class ChatbotCommandStateStore {
         }
     }
 
+    public Optional<ScheduleCommand> take(String protectedUserKey) {
+        String value = redis.opsForValue().getAndDelete(PREFIX + protectedUserKey);
+        if (value == null) return Optional.empty();
+        try {
+            return Optional.of(objectMapper.readValue(value, ScheduleCommand.class));
+        } catch (JacksonException exception) {
+            return Optional.empty();
+        }
+    }
+
     public void delete(String protectedUserKey) {
         redis.delete(PREFIX + protectedUserKey);
     }
@@ -71,6 +82,16 @@ public class ChatbotCommandStateStore {
         }
     }
 
+    public Optional<PendingDelete> takeDelete(String protectedUserKey) {
+        String value = redis.opsForValue().getAndDelete(DELETE_PREFIX + protectedUserKey);
+        if (value == null) return Optional.empty();
+        try {
+            return Optional.of(objectMapper.readValue(value, PendingDelete.class));
+        } catch (JacksonException exception) {
+            return Optional.empty();
+        }
+    }
+
     public void deleteDelete(String protectedUserKey) {
         redis.delete(DELETE_PREFIX + protectedUserKey);
     }
@@ -91,6 +112,16 @@ public class ChatbotCommandStateStore {
             return Optional.of(objectMapper.readValue(value, PendingUpdate.class));
         } catch (JacksonException exception) {
             deleteUpdate(protectedUserKey);
+            return Optional.empty();
+        }
+    }
+
+    public Optional<PendingUpdate> takeUpdate(String protectedUserKey) {
+        String value = redis.opsForValue().getAndDelete(UPDATE_PREFIX + protectedUserKey);
+        if (value == null) return Optional.empty();
+        try {
+            return Optional.of(objectMapper.readValue(value, PendingUpdate.class));
+        } catch (JacksonException exception) {
             return Optional.empty();
         }
     }
@@ -121,6 +152,15 @@ public class ChatbotCommandStateStore {
 
     public void deleteSelection(String protectedUserKey) {
         redis.delete(SELECTION_PREFIX + protectedUserKey);
+    }
+
+    public void saveLastRequest(String protectedUserKey, String utterance) {
+        if (utterance == null || utterance.isBlank()) return;
+        redis.opsForValue().set(LAST_REQUEST_PREFIX + protectedUserKey, utterance.trim(), TTL);
+    }
+
+    public Optional<String> getLastRequest(String protectedUserKey) {
+        return Optional.ofNullable(redis.opsForValue().get(LAST_REQUEST_PREFIX + protectedUserKey));
     }
 
     public record PendingDelete(Long scheduleId, Long version, String title, String dateLabel) {

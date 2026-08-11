@@ -47,6 +47,12 @@ function Choice<T extends string | number>({ value, current, label, onChange }: 
   return <button type="button" className={value === current ? 'settings-choice is-selected' : 'settings-choice'} onClick={() => onChange(value)}>{label}</button>;
 }
 
+function SettingsTabIcon({ tab }: { tab: 'reply' | 'schedule' | 'connection' }) {
+  if (tab === 'reply') return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 6.5h14v9H9l-4 3v-12Z" /><path d="M8.5 10h7M8.5 13h4.5" /></svg>;
+  if (tab === 'schedule') return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="6.5" width="14" height="12" rx="2" /><path d="M8 4.5v4M16 4.5v4M5 10.5h14M8.5 14h2M13.5 14h2" /></svg>;
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.5 12.5 6.8 14.2a3 3 0 0 0 4.2 4.2l2.1-2.1M15.5 11.5l1.7-1.7A3 3 0 1 0 13 5.6l-2.1 2.1M9 15l6-6" /><path d="M18 16.5v3M16.5 18h3" /></svg>;
+}
+
 const RANGE_OPTIONS: Array<{ value: ChatPreferences['defaultQueryRange']; label: string; description: string }> = [
   { value: 'TODAY', label: '오늘', description: '오늘 하루의 일정' },
   { value: 'THREE_DAYS', label: '앞으로 3일', description: '오늘부터 3일 동안' },
@@ -79,6 +85,7 @@ function RangePicker({ value, onChange }: {
 export function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
   const currentUser = useCurrentUser();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'reply' | 'schedule' | 'connection'>('reply');
   const [preferences, setPreferences] = useState<ChatPreferences>(() => ({
     ...DEFAULTS,
     ...currentUser.data?.chatPreferences,
@@ -155,8 +162,27 @@ export function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
 
   return (
     <div className="settings-panel">
+      <div className="settings-tabs" role="tablist" aria-label="설정 분류">
+        {([
+          ['reply', '답장 설정'],
+          ['schedule', '일정 설정'],
+          ['connection', '연결·알림'],
+        ] as const).map(([value, label]) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === value}
+            className={activeTab === value ? 'is-active' : ''}
+            key={value}
+            onClick={() => setActiveTab(value)}
+          >
+            <SettingsTabIcon tab={value} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
       <div className="reply-settings">
-        <section className="settings-group">
+        <section className="settings-group" hidden={activeTab !== 'reply'}>
           <div className="settings-group-heading">
             <div className="settings-heading-row"><h3>답장 컨셉</h3><InfoButton topic="style" onOpen={openHelp} /></div>
             <p>CalTalk이 답하는 말투를 선택해요.</p>
@@ -170,12 +196,12 @@ export function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
           </div>
         </section>
 
-        <section className="settings-preview" aria-label="답장 미리보기">
+        <section className="settings-preview" aria-label="답장 미리보기" hidden={activeTab !== 'reply'}>
           <span>답장 미리보기</span>
           <div><strong>{previewHeading}</strong><p>{previewLines}</p></div>
         </section>
 
-        <section className="settings-group settings-compact-grid">
+        <section className="settings-group settings-compact-grid" hidden={activeTab !== 'reply'}>
           <div><div className="settings-heading-row"><h3>문단 구성</h3><InfoButton topic="layout" onOpen={openHelp} /></div><div className="settings-choice-row">
             <Choice value="COMPACT" current={preferences.replyLayout} label="압축형" onChange={(value) => patch('replyLayout', value)} /><Choice value="BALANCED" current={preferences.replyLayout} label="균형형" onChange={(value) => patch('replyLayout', value)} /><Choice value="SECTIONED" current={preferences.replyLayout} label="구분형" onChange={(value) => patch('replyLayout', value)} />
           </div></div>
@@ -188,6 +214,9 @@ export function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
           <div><div className="settings-heading-row"><h3>시간 표시</h3><InfoButton topic="time" onOpen={openHelp} /></div><div className="settings-choice-row">
             <Choice value="TWELVE_HOUR" current={preferences.timeFormat} label="오전·오후" onChange={(value) => patch('timeFormat', value)} /><Choice value="TWENTY_FOUR_HOUR" current={preferences.timeFormat} label="24시간" onChange={(value) => patch('timeFormat', value)} />
           </div></div>
+        </section>
+
+        <section className="settings-group settings-compact-grid settings-schedule-basics" hidden={activeTab !== 'schedule'}>
           <div><div className="settings-heading-row"><h3>기본 일정 길이</h3><InfoButton topic="duration" onOpen={openHelp} /></div><div className="settings-choice-row">
             <Choice value={30} current={preferences.defaultDurationMinutes} label="30분" onChange={(value) => patch('defaultDurationMinutes', value)} /><Choice value={60} current={preferences.defaultDurationMinutes} label="1시간" onChange={(value) => patch('defaultDurationMinutes', value)} /><Choice value={120} current={preferences.defaultDurationMinutes} label="2시간" onChange={(value) => patch('defaultDurationMinutes', value)} />
           </div></div>
@@ -199,14 +228,14 @@ export function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
           <div><div className="settings-heading-row"><h3>기본 조회 범위</h3><InfoButton topic="range" onOpen={openHelp} /></div><RangePicker value={preferences.defaultQueryRange} onChange={(value) => patch('defaultQueryRange', value)} /></div>
         </section>
 
-        <section className="settings-group settings-confirmations">
+        <section className="settings-group settings-confirmations" hidden={activeTab !== 'schedule'}>
           <div className="settings-heading-row"><h3>처리 전 확인</h3><InfoButton topic="confirmation" onOpen={openHelp} /></div>
           <label><span><strong>일정 추가 전 확인</strong><small>등록 내용을 한 번 확인한 뒤 저장해요.</small></span><input type="checkbox" checked={preferences.confirmCreate} onChange={(event) => patch('confirmCreate', event.target.checked)} /></label>
           <label><span><strong>일정 수정 전 확인</strong><small>변경 전 기존 일정과 새 내용을 비교해요.</small></span><input type="checkbox" checked={preferences.confirmUpdate} onChange={(event) => patch('confirmUpdate', event.target.checked)} /></label>
           <p>일정 삭제는 안전을 위해 항상 확인합니다.</p>
         </section>
 
-        <section className="settings-group settings-confirmations">
+        <section className="settings-group settings-confirmations" hidden={activeTab !== 'schedule'}>
           <div className="settings-heading-row"><h3>일정 요약 알림</h3></div>
           <label><span><strong>일간 요약</strong><small>오늘 일정을 선택한 시각에 정리해 드려요.</small></span><input type="checkbox" checked={preferences.dailySummaryEnabled} onChange={(event) => patch('dailySummaryEnabled', event.target.checked)} /></label>
           {preferences.dailySummaryEnabled ? <div className="settings-choice-row">
@@ -223,18 +252,30 @@ export function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
           </> : null}
         </section>
 
-        <section className="settings-group settings-push">
-          <div className="settings-heading-row"><h3>이 기기 알림</h3></div>
-          <p>설정한 일정 알림을 PWA 푸시로 받아보세요. 기기마다 한 번씩 허용해야 합니다.</p>
-          <div className="settings-choice-row">
-            <button type="button" className="settings-choice is-selected" disabled={pushState === 'pending'} onClick={enablePush}>{pushState === 'pending' ? '처리 중…' : '알림 허용'}</button>
-            <button type="button" className="settings-choice" disabled={pushState === 'pending'} onClick={disablePush}>이 기기 해제</button>
-            <button type="button" className="settings-choice" disabled={pushState === 'pending'} onClick={testPush}>테스트 발송</button>
+        <section className="settings-push" aria-labelledby="device-push-title" hidden={activeTab !== 'connection'}>
+          <div className="settings-push-intro">
+            <span className="settings-push-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7.6 9.8a4.4 4.4 0 0 1 8.8 0c0 5 2.1 5.5 2.1 6.7H5.5c0-1.2 2.1-1.7 2.1-6.7Z" /><path d="M10 19h4" /></svg>
+            </span>
+            <div>
+              <div className="settings-push-title-row">
+                <h3 id="device-push-title">이 기기 알림</h3>
+                <span className={`settings-push-status is-${pushState}`}>{pushState === 'enabled' ? '사용 중' : pushState === 'disabled' ? '해제됨' : pushState === 'pending' ? '처리 중' : '설정 필요'}</span>
+              </div>
+              <p>일정 알림과 요약을 지금 사용하는 기기에서 받아보세요.</p>
+            </div>
           </div>
-          {pushState === 'enabled' ? <small>이 기기로 일정 알림을 받을 수 있어요.</small> : null}
-          {pushState === 'disabled' ? <small>이 기기의 일정 알림을 해제했어요.</small> : null}
-          {pushNotice ? <small>{pushNotice}</small> : null}
-          {pushError ? <small className="settings-push-error" role="alert">{pushError}</small> : null}
+          <div className="settings-push-actions">
+            <button type="button" className="settings-push-primary" disabled={pushState === 'pending'} onClick={enablePush}>{pushState === 'pending' ? '처리 중…' : pushState === 'enabled' ? '알림 다시 설정' : '이 기기에서 알림 받기'}</button>
+            <button type="button" className="settings-push-secondary" disabled={pushState === 'pending'} onClick={testPush}>테스트 알림</button>
+          </div>
+          <button type="button" className="settings-push-release" disabled={pushState === 'pending'} onClick={disablePush}>이 기기 알림 해제</button>
+          <div className="settings-push-feedback" aria-live="polite">
+            {pushState === 'enabled' && !pushNotice ? <span>알림을 받을 준비가 완료됐어요.</span> : null}
+            {pushState === 'disabled' ? <span>이 기기에서는 더 이상 알림을 받지 않아요.</span> : null}
+            {pushNotice ? <span>{pushNotice}</span> : null}
+            {pushError ? <span className="settings-push-error" role="alert">{pushError}</span> : null}
+          </div>
         </section>
 
         <div className="settings-save-bar">
@@ -242,7 +283,7 @@ export function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
           <button type="button" disabled={!changed || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? '저장 중…' : '설정 저장'}</button>
         </div>
 
-        <section className="settings-link-section">
+        <section className="settings-link-section" hidden={activeTab !== 'connection'}>
           <div className="settings-heading-row"><h3>카카오톡 연동</h3><InfoButton topic="link" onOpen={openHelp} /></div>
           <KakaoLinkPanel showTitle={false} />
         </section>

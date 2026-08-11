@@ -32,4 +32,34 @@ class KakaoSkillResponseFactoryTests {
 
         assertThat(outputs.getFirst()).containsKey("simpleText");
     }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void addsCandidateSelectionQuickReplies() {
+        Map<String, Object> response = KakaoSkillResponseFactory.response("""
+                🗑️ 어떤 일정을 변경할까요?
+                1. 10:00~11:00  팀 회의
+                2. 15:00~16:00  고객 미팅
+                번호나 시간을 말씀해 주세요. 취소하려면 '취소'라고 답해 주세요.
+                """);
+        Map<String, Object> template = (Map<String, Object>) response.get("template");
+        List<Map<String, String>> replies = (List<Map<String, String>>) template.get("quickReplies");
+
+        assertThat(replies).extracting(reply -> reply.get("messageText"))
+                .containsExactly("10:00~11:00", "15:00~16:00", "취소");
+        assertThat(replies).extracting(reply -> reply.get("label"))
+                .containsExactly("10:00~11:00", "15:00~16:00", "취소");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void addsRecoveryActionsForTemporaryFailure() {
+        Map<String, Object> response = KakaoSkillResponseFactory.response(
+                "일정 문장을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.");
+        Map<String, Object> template = (Map<String, Object>) response.get("template");
+        List<Map<String, String>> replies = (List<Map<String, String>>) template.get("quickReplies");
+
+        assertThat(replies).extracting(reply -> reply.get("messageText"))
+                .containsExactly("다시 시도", "오늘 일정 알려줘");
+    }
 }
