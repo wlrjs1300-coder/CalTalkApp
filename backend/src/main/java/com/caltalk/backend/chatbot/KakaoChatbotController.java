@@ -21,6 +21,17 @@ import tools.jackson.databind.JsonNode;
 public class KakaoChatbotController {
     private static final Logger log = LoggerFactory.getLogger(KakaoChatbotController.class);
     static final String SECRET_HEADER = "X-CalTalk-Skill-Secret";
+    static final String LINK_REQUIRED_MESSAGE = """
+            🔗 CalTalk 계정 연결이 필요합니다.
+
+            1. CalTalk 앱에서 설정을 엽니다.
+            2. 8자리 연결 코드를 발급합니다.
+            3. 이 채팅방에 코드를 입력합니다.""";
+    static final String LINK_COMPLETED_MESSAGE = """
+            ✅ CalTalk 계정 연결을 완료했습니다.
+
+            이제 카카오톡에서 일정을
+            확인하고 관리할 수 있습니다.""";
     private final boolean enabled;
     private final String configuredSecret;
     private final KakaoLinkService linkService;
@@ -65,12 +76,12 @@ public class KakaoChatbotController {
             return ResponseEntity.ok(new KakaoCallbackAccepted("2.0", true));
         }
         String message=switch(result){
-            case CONNECTED -> "CalTalk 계정 연결이 완료됐어요. 이제 카카오톡에서 일정을 관리할 수 있어요.";
+            case CONNECTED -> LINK_COMPLETED_MESSAGE;
             case ALREADY_CONNECTED -> assistantService.reply(
                     request.path("user").path("id").asText(), request.path("utterance").asText());
             case ACCOUNT_ALREADY_LINKED -> "이 CalTalk 계정은 이미 다른 카카오톡 사용자와 연결되어 있어요. CalTalk 설정에서 기존 연결을 해제해 주세요.";
             case INVALID_OR_EXPIRED -> "연결 코드가 올바르지 않거나 만료됐어요. CalTalk 설정에서 새 코드를 발급해 주세요.";
-            case NOT_A_CODE -> "먼저 CalTalk 계정을 연결해 주세요. CalTalk 설정에서 8자리 연결 코드를 발급한 뒤 이 채팅방에 입력해 주세요.";
+            case NOT_A_CODE -> LINK_REQUIRED_MESSAGE;
         };
         return ResponseEntity.ok(KakaoSkillResponseFactory.response(message));
     }

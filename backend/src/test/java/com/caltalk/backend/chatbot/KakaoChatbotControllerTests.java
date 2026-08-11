@@ -64,7 +64,21 @@ class KakaoChatbotControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.version").value("2.0"))
                 .andExpect(jsonPath("$.template.outputs[0].simpleText.text")
-                        .value("먼저 CalTalk 계정을 연결해 주세요. CalTalk 설정에서 8자리 연결 코드를 발급한 뒤 이 채팅방에 입력해 주세요."));
+                        .value(KakaoChatbotController.LINK_REQUIRED_MESSAGE));
+    }
+
+    @Test
+    void returnsReadableConfirmationAfterAccountLinking() throws Exception {
+        when(linkService.consume("bot-user-1", "내일 일정 알려줘"))
+                .thenReturn(KakaoLinkService.LinkResult.CONNECTED);
+
+        mockMvc.perform(post("/api/v1/kakao/skill")
+                        .header("X-CalTalk-Skill-Secret", "test-skill-secret")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(PAYLOAD))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.template.outputs[0].simpleText.text")
+                        .value(KakaoChatbotController.LINK_COMPLETED_MESSAGE));
     }
 
     @Test
