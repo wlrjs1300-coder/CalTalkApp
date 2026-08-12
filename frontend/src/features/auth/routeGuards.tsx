@@ -12,6 +12,7 @@ function isUnauthorized(error: unknown): boolean {
 function useAuthTimeout(timeoutMs: number) {
   const query = useCurrentUser();
   const [timedOut, setTimedOut] = useState(false);
+  const [isManualRetrying, setIsManualRetrying] = useState(false);
 
   useEffect(() => {
     if (!query.isPending) {
@@ -22,10 +23,27 @@ function useAuthTimeout(timeoutMs: number) {
     return () => window.clearTimeout(timer);
   }, [query.isPending, timeoutMs]);
 
-  return { query, timedOut };
+  const retryNow = async () => {
+    if (isManualRetrying) return;
+
+    setIsManualRetrying(true);
+    try {
+      await query.refetch({ cancelRefetch: true });
+    } finally {
+      setIsManualRetrying(false);
+    }
+  };
+
+  return { query, timedOut, isManualRetrying, retryNow };
 }
 
-function ServerWakeupView({ onRetry }: { onRetry: () => void }) {
+function ServerWakeupView({
+  isRetrying,
+  onRetry,
+}: {
+  isRetrying: boolean;
+  onRetry: () => Promise<void>;
+}) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
@@ -34,6 +52,11 @@ function ServerWakeupView({ onRetry }: { onRetry: () => void }) {
   }, []);
 
   const activeStage = elapsedSeconds < 12 ? 0 : elapsedSeconds < 32 ? 1 : 2;
+
+  const handleRetry = async () => {
+    setElapsedSeconds(0);
+    await onRetry();
+  };
 
   return (
     <main className="server-wakeup-page" aria-live="polite" aria-busy="true">
@@ -53,8 +76,11 @@ function ServerWakeupView({ onRetry }: { onRetry: () => void }) {
         </p>
 
         <div className="server-wakeup-progress" aria-label="서버 연결 진행 중">
-          {['서버 시작', '데이터 연결', '화면 준비'].map((label, index) => (
-            <div className={index <= activeStage ? 'is-active' : ''} key={label}>
+          {['서버 시작', '데이터 연결', '화면 확인'].map((label, index) => (
+            <div
+              className={index < activeStage ? 'is-complete' : index === activeStage ? 'is-active' : ''}
+              key={label}
+            >
               <span>{index < activeStage ? '✓' : index + 1}</span>
               <small>{label}</small>
             </div>
@@ -64,8 +90,14 @@ function ServerWakeupView({ onRetry }: { onRetry: () => void }) {
         <p className="server-wakeup-note">
           첫 접속은 보통 1분 안팎이 걸릴 수 있습니다. 이 페이지를 그대로 두셔도 됩니다.
         </p>
-        <button type="button" className="server-wakeup-retry" onClick={onRetry}>
-          지금 다시 연결
+        <button
+          type="button"
+          className="server-wakeup-retry"
+          disabled={isRetrying}
+          aria-busy={isRetrying}
+          onClick={() => void handleRetry()}
+        >
+          {isRetrying ? '연결 확인 중...' : '지금 다시 연결'}
         </button>
       </section>
     </main>
@@ -79,11 +111,11 @@ const ERROR_MESSAGE = '현재 서버 연결이 불안정합니다. 잠시 후 �
 
 export function ProtectedRoute() {
   const location = useLocation();
-  const { query, timedOut } = useAuthTimeout(AUTH_CHECK_TIMEOUT_MS);
+  const { query, timedOut, isManualRetrying, retryNow } = useAuthTimeout(AUTH_CHECK_TIMEOUT_MS);
 
   if (query.isPending) {
     if (!timedOut) return <StatusView title={LOADING_TEXT} message="잠시만 기다려 주세요." />;
-    return <ServerWakeupView onRetry={() => void query.refetch()} />;
+    return <ServerWakeupView isRetrying={isManualRetrying} onRetry={retryNow} />;
   }
 
   if (query.isError && isUnauthorized(query.error)) {
@@ -91,7 +123,7 @@ export function ProtectedRoute() {
   }
 
   if (query.isError && isBackendStartingError(query.error)) {
-    return <ServerWakeupView onRetry={() => void query.refetch()} />;
+    return <ServerWakeupView isRetrying={isManualRetrying} onRetry={retryNow} />;
   }
 
   if (query.isError) {
@@ -109,17 +141,17 @@ export function ProtectedRoute() {
 }
 
 export function PublicOnlyRoute() {
-  const { query, timedOut } = useAuthTimeout(AUTH_CHECK_TIMEOUT_MS);
+  const { query, timedOut, isManualRetrying, retryNow } = useAuthTimeout(AUTH_CHECK_TIMEOUT_MS);
 
   if (query.isPending) {
     if (!timedOut) return <StatusView title={LOADING_TEXT} message="잠시만 기다려 주세요." />;
-    return <ServerWakeupView onRetry={() => void query.refetch()} />;
+    return <ServerWakeupView isRetrying={isManualRetrying} onRetry={retryNow} />;
   }
 
   if (query.isSuccess) return <Navigate to="/" replace />;
   if (query.isError && isUnauthorized(query.error)) return <Outlet />;
   if (query.isError && isBackendStartingError(query.error)) {
-    return <ServerWakeupView onRetry={() => void query.refetch()} />;
+    return <ServerWakeupView isRetrying={isManualRetrying} onRetry={retryNow} />;
   }
   if (query.isError) {
     return (

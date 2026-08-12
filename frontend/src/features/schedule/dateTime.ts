@@ -143,6 +143,31 @@ function parseLocal(value: string): LocalDateTimeParts | undefined {
   return parsed;
 }
 
+export function addMinutesToDateTimeLocal(value: string, minutes: number): string {
+  const parsed = parseLocal(value);
+  if (!parsed || !Number.isFinite(minutes)) throw new Error('INVALID_DATE');
+
+  const shifted = new Date(
+    Date.UTC(
+      parsed.year,
+      parsed.month - 1,
+      parsed.day,
+      parsed.hour,
+      parsed.minute + minutes,
+      parsed.second,
+    ),
+  );
+
+  return toLocalValue({
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    second: shifted.getUTCSeconds(),
+  });
+}
+
 function offsetAt(instantMs: number, timeZone: string): number {
   const parts = partsAt(new Date(instantMs), timeZone);
   const representedAsUtc = Date.UTC(

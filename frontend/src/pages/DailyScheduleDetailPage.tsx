@@ -17,7 +17,7 @@ import { getHolidayName } from '../features/schedule/holidays';
 import { useScheduleMutations } from '../features/schedule/mutations';
 import { useSchedule } from '../features/schedule/queries';
 import { buildUpdateRequest, scheduleFormSchema, type ScheduleFormValues } from '../features/schedule/schemas';
-import { dateTimeLocalToUtc, utcToDateTimeLocal } from '../features/schedule/dateTime';
+import { addMinutesToDateTimeLocal, dateTimeLocalToUtc, utcToDateTimeLocal } from '../features/schedule/dateTime';
 import { SettingsPanel } from '../features/user/SettingsPanel';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -330,7 +330,13 @@ function EventEditForm({ schedule, dateLabel, timezone, onSaved, onDeleted, onCa
             label="시작 시간"
             value={startAt}
             error={form.formState.errors.startAt?.message}
-            onChange={(value) => form.setValue('startAt', value, { shouldDirty: true, shouldValidate: true })}
+            onChange={(value) => {
+              form.setValue('startAt', value, { shouldDirty: true, shouldValidate: true });
+              form.setValue('endAt', addMinutesToDateTimeLocal(value, 60), {
+                shouldDirty: true,
+                shouldValidate: true,
+              });
+            }}
           />
           <DateTimePicker
             id={`event-end-${schedule.id}`}
@@ -502,7 +508,19 @@ function EventCreateForm({
       <form className="event-edit-form" onSubmit={form.handleSubmit(submit)} noValidate>
         <FormField id="new-event-title" label="일정 제목" placeholder="일정 제목을 입력해 주세요" error={form.formState.errors.title?.message} {...form.register('title')} />
         <div className="event-edit-time-grid">
-          <DateTimePicker id="new-event-start" label="시작 시간" value={startAt} error={form.formState.errors.startAt?.message} onChange={(value) => form.setValue('startAt', value, { shouldDirty: true, shouldValidate: true })} />
+          <DateTimePicker
+            id="new-event-start"
+            label="시작 시간"
+            value={startAt}
+            error={form.formState.errors.startAt?.message}
+            onChange={(value) => {
+              form.setValue('startAt', value, { shouldDirty: true, shouldValidate: true });
+              form.setValue('endAt', addMinutesToDateTimeLocal(value, 60), {
+                shouldDirty: true,
+                shouldValidate: true,
+              });
+            }}
+          />
           <DateTimePicker id="new-event-end" label="종료 시간" value={endAt} error={form.formState.errors.endAt?.message} onChange={(value) => form.setValue('endAt', value, { shouldDirty: true, shouldValidate: true })} />
         </div>
         <div className="event-edit-field-with-icon is-location">
