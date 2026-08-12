@@ -19,7 +19,6 @@ export function ScheduleList({
   timeZone,
   isLoading,
   error,
-  windowLabel = '일정',
   onRetry,
   onSelect,
   onCreate,
@@ -54,7 +53,7 @@ export function ScheduleList({
         <span className="empty-illustration" aria-hidden="true">
           <CalendarIcon />
         </span>
-        <h3>{windowLabel}이(가) 아직 없어요</h3>
+        <h3>등록된 일정이 없어요</h3>
         <p>중요한 약속부터 먼저 기록해서 바로 일정을 시작해 보세요.</p>
         <button type="button" className="primary-button compact-button" onClick={onCreate}>
           <span aria-hidden="true">＋</span> 첫 일정 만들기

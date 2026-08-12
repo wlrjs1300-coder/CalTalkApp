@@ -6,17 +6,18 @@ import { useForm } from 'react-hook-form';
 
 import { ApiError, fieldErrorMap } from '../api/errors';
 import { logout } from '../api/auth';
-import type { ReminderMinutes, ScheduleDetail } from '../api/schedule';
+import type { CreateScheduleRequest, ReminderMinutes, ScheduleDetail } from '../api/schedule';
 import { MapPinIcon } from '../components/common/Icons';
 import { FormField } from '../components/common/FormField';
 import { AppLayout } from '../components/layout/AppLayout';
 import { currentUserQueryKey, useCurrentUser } from '../features/auth/authQuery';
 import { DialogShell } from '../features/schedule/components/DialogShell';
+import { ConflictDialog, type ConflictState } from '../features/schedule/components/ConflictDialog';
 import { getHolidayName } from '../features/schedule/holidays';
 import { useScheduleMutations } from '../features/schedule/mutations';
 import { useSchedule } from '../features/schedule/queries';
 import { buildUpdateRequest, scheduleFormSchema, type ScheduleFormValues } from '../features/schedule/schemas';
-import { utcToDateTimeLocal } from '../features/schedule/dateTime';
+import { dateTimeLocalToUtc, utcToDateTimeLocal } from '../features/schedule/dateTime';
 import { SettingsPanel } from '../features/user/SettingsPanel';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,6 +27,7 @@ interface EventEditFormProps {
   dateLabel?: string;
   timezone: string;
   onSaved: () => void;
+  onDeleted: () => void;
   onCancel: () => void;
 }
 
@@ -236,9 +238,10 @@ function DateTimePicker({
   );
 }
 
-function EventEditForm({ schedule, dateLabel, timezone, onSaved, onCancel }: EventEditFormProps) {
+function EventEditForm({ schedule, dateLabel, timezone, onSaved, onDeleted, onCancel }: EventEditFormProps) {
   const mutations = useScheduleMutations();
   const [reminderMinutes, setReminderMinutes] = useState<ReminderMinutes[]>(schedule.reminderMinutes ?? [1440]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(scheduleFormSchema),
     defaultValues: {
@@ -255,6 +258,22 @@ function EventEditForm({ schedule, dateLabel, timezone, onSaved, onCancel }: Eve
   const toggleReminder = (minutes: ReminderMinutes) => setReminderMinutes((current) => current.includes(minutes)
     ? current.filter((value) => value !== minutes)
     : [...current, minutes]);
+
+  useEffect(() => {
+    if (!deleteConfirmOpen) return undefined;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !mutations.remove.isPending) setDeleteConfirmOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [deleteConfirmOpen, mutations.remove.isPending]);
+
+  const removeSchedule = () => {
+    mutations.remove.mutate(
+      { id: schedule.id, version: schedule.version },
+      { onSuccess: onDeleted },
+    );
+  };
 
   const submit = (values: ScheduleFormValues) => {
     form.clearErrors();
@@ -282,9 +301,10 @@ function EventEditForm({ schedule, dateLabel, timezone, onSaved, onCancel }: Eve
     );
   };
 
-  const generalError = mutations.update.error instanceof ApiError
-    ? mutations.update.error.message
-    : mutations.update.error ? '일정을 수정하지 못했습니다. 잠시 후 다시 시도해 주세요.' : undefined;
+  const operationError = mutations.remove.error ?? mutations.update.error;
+  const generalError = operationError instanceof ApiError
+    ? operationError.message
+    : operationError ? '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.' : undefined;
 
   return (
     <div className="event-edit-main">
@@ -349,12 +369,159 @@ function EventEditForm({ schedule, dateLabel, timezone, onSaved, onCancel }: Eve
         </section>
 
         <footer className="event-edit-actions">
-          <button type="button" className="event-edit-cancel" disabled={mutations.update.isPending} onClick={onCancel}>
+          <button type="button" className="event-edit-cancel" disabled={mutations.update.isPending || mutations.remove.isPending} onClick={onCancel}>
             취소
           </button>
-          <button type="submit" className="event-edit-save" disabled={mutations.update.isPending || (!form.formState.isDirty && !remindersChanged)}>
+          <button type="submit" className="event-edit-save" disabled={mutations.remove.isPending || mutations.update.isPending || (!form.formState.isDirty && !remindersChanged)}>
             {mutations.update.isPending ? '저장 중…' : '변경사항 저장'}
           </button>
+        </footer>
+        <button
+          type="button"
+          className="event-edit-delete"
+          disabled={mutations.update.isPending || mutations.remove.isPending}
+          onClick={() => setDeleteConfirmOpen(true)}
+        >
+          일정 삭제
+        </button>
+      </form>
+
+      {deleteConfirmOpen ? (
+        <div
+          className="event-delete-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !mutations.remove.isPending) setDeleteConfirmOpen(false);
+          }}
+        >
+          <section className="event-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="event-delete-title">
+            <div className="event-delete-icon" aria-hidden="true">×</div>
+            <p className="event-delete-kicker">일정 삭제</p>
+            <h2 id="event-delete-title">이 일정을 삭제할까요?</h2>
+            <div className="event-delete-summary">
+              <strong>{schedule.title}</strong>
+              <span>{dateLabel}</span>
+            </div>
+            <p className="event-delete-warning">삭제한 일정은 다시 복구할 수 없습니다.</p>
+            {mutations.remove.error ? <div className="alert event-edit-alert" role="alert">{generalError}</div> : null}
+            <footer className="event-delete-actions">
+              <button type="button" disabled={mutations.remove.isPending} onClick={() => setDeleteConfirmOpen(false)}>취소</button>
+              <button type="button" className="is-danger" disabled={mutations.remove.isPending} onClick={removeSchedule}>
+                {mutations.remove.isPending ? '삭제 중…' : '삭제하기'}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function EventCreateForm({
+  date,
+  dateLabel,
+  timezone,
+  defaultDurationMinutes,
+  onSaved,
+  onCancel,
+  onConflict,
+}: {
+  date: string;
+  dateLabel?: string;
+  timezone: string;
+  defaultDurationMinutes: number;
+  onSaved: () => void;
+  onCancel: () => void;
+  onConflict: (state: ConflictState) => void;
+}) {
+  const mutations = useScheduleMutations();
+  const [reminderMinutes, setReminderMinutes] = useState<ReminderMinutes[]>([1440]);
+  const initialValues = useMemo<ScheduleFormValues>(() => {
+    const now = new Date();
+    const localToday = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(now);
+    const rounded = Math.ceil(now.getMinutes() / 30) * 30;
+    const hour = date === localToday ? (now.getHours() + Math.floor(rounded / 60)) % 24 : 9;
+    const minute = date === localToday ? rounded % 60 : 0;
+    const start = new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`);
+    const end = new Date(start.getTime() + defaultDurationMinutes * 60_000);
+    const localValue = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+    return { title: '', startAt: localValue(start), endAt: localValue(end), location: '' };
+  }, [date, defaultDurationMinutes, timezone]);
+  const form = useForm<ScheduleFormValues>({ resolver: zodResolver(scheduleFormSchema), defaultValues: initialValues });
+  const startAt = form.watch('startAt');
+  const endAt = form.watch('endAt');
+  const toggleReminder = (minutes: ReminderMinutes) => setReminderMinutes((current) => current.includes(minutes)
+    ? current.filter((value) => value !== minutes)
+    : [...current, minutes]);
+
+  const submit = (values: ScheduleFormValues) => {
+    form.clearErrors();
+    let request: CreateScheduleRequest;
+    try {
+      request = {
+        title: values.title.trim(),
+        startAt: dateTimeLocalToUtc(values.startAt, timezone),
+        endAt: dateTimeLocalToUtc(values.endAt, timezone),
+        location: values.location.trim() || null,
+        reminderMinutes,
+      };
+    } catch {
+      form.setError('startAt', { message: '입력한 날짜와 시간을 확인해 주세요.' });
+      return;
+    }
+    mutations.create.mutate(request, {
+      onSuccess: onSaved,
+      onError: (error) => {
+        if (error instanceof ApiError && error.code === 'SCHEDULE_CONFLICT' && error.confirmationId !== undefined) {
+          onConflict({ confirmationId: error.confirmationId, conflicts: error.conflicts, replacementCount: 0 });
+          return;
+        }
+        const fields = fieldErrorMap(error);
+        for (const [field, message] of Object.entries(fields)) {
+          if (field === 'title' || field === 'startAt' || field === 'endAt' || field === 'location') {
+            form.setError(field, { type: 'server', message });
+          }
+        }
+      },
+    });
+  };
+  const generalError = mutations.create.error instanceof ApiError
+    ? mutations.create.error.message
+    : mutations.create.error ? '일정을 추가하지 못했습니다. 잠시 후 다시 시도해 주세요.' : undefined;
+
+  return (
+    <div className="event-edit-main">
+      <header className="event-edit-heading">
+        <p>일정 추가</p>
+        <h1>새로운 일정을 만들어 보세요.</h1>
+        <span>{dateLabel}</span>
+      </header>
+      {generalError ? <div className="alert event-edit-alert" role="alert">{generalError}</div> : null}
+      <form className="event-edit-form" onSubmit={form.handleSubmit(submit)} noValidate>
+        <FormField id="new-event-title" label="일정 제목" placeholder="일정 제목을 입력해 주세요" error={form.formState.errors.title?.message} {...form.register('title')} />
+        <div className="event-edit-time-grid">
+          <DateTimePicker id="new-event-start" label="시작 시간" value={startAt} error={form.formState.errors.startAt?.message} onChange={(value) => form.setValue('startAt', value, { shouldDirty: true, shouldValidate: true })} />
+          <DateTimePicker id="new-event-end" label="종료 시간" value={endAt} error={form.formState.errors.endAt?.message} onChange={(value) => form.setValue('endAt', value, { shouldDirty: true, shouldValidate: true })} />
+        </div>
+        <div className="event-edit-field-with-icon is-location">
+          <MapPinIcon />
+          <FormField id="new-event-location" label="장소" placeholder="장소를 입력해 주세요 (선택)" error={form.formState.errors.location?.message} {...form.register('location')} />
+        </div>
+        <p className="event-edit-timezone">입력한 시간은 {timezone} 기준으로 저장됩니다.</p>
+        <section className="event-reminder-editor" aria-labelledby="new-event-reminder-title">
+          <div><strong id="new-event-reminder-title">일정 알림</strong><span>필요한 시점을 여러 개 선택할 수 있어요.</span></div>
+          <div className="event-reminder-options">
+            {([[10080, '1주일 전'], [4320, '3일 전'], [1440, '1일 전'], [60, '1시간 전']] as const).map(([minutes, label]) => (
+              <button type="button" key={minutes} className={reminderMinutes.includes(minutes) ? 'is-selected' : ''} onClick={() => toggleReminder(minutes)}>{label}</button>
+            ))}
+          </div>
+          {reminderMinutes.length === 0 ? <small>이 일정은 알림을 보내지 않습니다.</small> : null}
+        </section>
+        <footer className="event-edit-actions">
+          <button type="button" className="event-edit-cancel" disabled={mutations.create.isPending} onClick={onCancel}>취소</button>
+          <button type="submit" className="event-edit-save" disabled={mutations.create.isPending}>{mutations.create.isPending ? '추가 중…' : '일정 추가'}</button>
         </footer>
       </form>
     </div>
@@ -367,7 +534,10 @@ export function DailyScheduleDetailPage() {
   const currentUser = useCurrentUser();
   const queryClient = useQueryClient();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [conflict, setConflict] = useState<ConflictState>();
+  const mutations = useScheduleMutations();
   const id = Number(scheduleId);
+  const isCreateMode = scheduleId === undefined;
 
   const logoutMutation = useMutation({
     mutationFn: () => logout(),
@@ -377,7 +547,7 @@ export function DailyScheduleDetailPage() {
     },
   });
 
-  const detail = useSchedule(Number.isFinite(id) ? id : null);
+  const detail = useSchedule(!isCreateMode && Number.isFinite(id) ? id : null);
   const isInvalidDate = Boolean(date && !DATE_PATTERN.test(date));
   const holidayName = date ? getHolidayName(date) : undefined;
 
@@ -415,7 +585,7 @@ export function DailyScheduleDetailPage() {
           </button>
         </nav>
 
-        {(isInvalidDate || !Number.isFinite(id)) ? (
+        {(isInvalidDate || (!isCreateMode && !Number.isFinite(id))) ? (
           <div className="empty-state daily-empty-state">
             <h3>일정 정보를 확인할 수 없습니다.</h3>
             <p>날짜와 일정 주소가 올바른지 다시 확인해 주세요.</p>
@@ -423,6 +593,24 @@ export function DailyScheduleDetailPage() {
               캘린더로 이동
             </button>
           </div>
+        ) : isCreateMode && date && dateParts ? (
+          <article className="event-detail-shell event-edit-shell">
+            <aside className="event-detail-date" aria-label={dateParts.full}>
+              <span className="event-detail-month">{dateParts.month}</span>
+              <strong>{dateParts.day}</strong>
+              <span className="event-detail-weekday">{dateParts.full.split(' ').at(-1)}</span>
+              {holidayName ? <span className="event-detail-holiday">{holidayName}</span> : null}
+            </aside>
+            <EventCreateForm
+              date={date}
+              dateLabel={dateParts.full}
+              timezone={timezone}
+              defaultDurationMinutes={currentUser.data.chatPreferences?.defaultDurationMinutes ?? 60}
+              onSaved={() => navigate(`/day/${date}`, { replace: true })}
+              onCancel={() => navigate(`/day/${date}`)}
+              onConflict={setConflict}
+            />
+          </article>
         ) : detail.isPending ? (
           <div className="status-state">일정 정보를 불러오고 있습니다.</div>
         ) : detail.error ? (
@@ -448,6 +636,7 @@ export function DailyScheduleDetailPage() {
               dateLabel={dateParts?.full}
               timezone={timezone}
               onSaved={() => navigate(`/day/${date}`, { replace: true })}
+              onDeleted={() => navigate(`/day/${date}`, { replace: true })}
               onCancel={() => navigate(`/day/${date}`)}
             />
           </article>
@@ -458,6 +647,19 @@ export function DailyScheduleDetailPage() {
         <DialogShell title="설정" onClose={() => setSettingsOpen(false)}>
           <SettingsPanel onSaved={() => setSettingsOpen(false)} />
         </DialogShell>
+      ) : null}
+
+      {conflict ? (
+        <ConflictDialog
+          state={conflict}
+          timeZone={timezone}
+          pending={mutations.approve.isPending}
+          error={mutations.approve.error}
+          onApprove={() => mutations.approve.mutate(conflict.confirmationId, {
+            onSuccess: () => navigate(`/day/${date}`, { replace: true }),
+          })}
+          onClose={() => setConflict(undefined)}
+        />
       ) : null}
     </AppLayout>
   );

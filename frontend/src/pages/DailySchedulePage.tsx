@@ -106,8 +106,14 @@ export function DailySchedulePage() {
             <p className="daily-schedule-date-label">하루 일정</p>
             <h1 className="daily-schedule-date-title">{dayLabel}</h1>
           </div>
-          <Link to="/" className="daily-calendar-button" aria-label="캘린더 보기">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2v3M18 2v3M3 9h18M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /></svg>
+          <Link
+            to={isValidDate ? `/day/${date}/new` : '#'}
+            className={isValidDate ? 'daily-calendar-button daily-add-button' : 'daily-calendar-button daily-add-button is-disabled'}
+            aria-label="이 날짜에 일정 추가"
+            aria-disabled={!isValidDate}
+            onClick={(event) => { if (!isValidDate) event.preventDefault(); }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
           </Link>
         </header>
 
@@ -158,13 +164,12 @@ export function DailySchedulePage() {
 
             {schedules.length === 0 && !scheduleQuery.isPending ? (
               <div className="empty-state daily-empty-state">
-                <span className="daily-empty-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
-                </span>
+                <p className="daily-empty-kicker"><span aria-hidden="true" />새 일정을 시작해 보세요</p>
                 <h3>이날은 아직 비어 있어요</h3>
-                <p>캘린더로 돌아가 새로운 일정을 추가해 보세요.</p>
-                <Link to="/" className="primary-button compact-button daily-empty-cta">
-                  일정 추가하기
+                <p className="daily-empty-description">약속이나 할 일을 등록하면<br />이곳에서 시간 순서대로 확인할 수 있어요.</p>
+                <Link to={`/day/${date}/new`} className="primary-button compact-button daily-empty-cta">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                  새 일정 추가
                 </Link>
               </div>
             ) : null}
@@ -227,6 +232,7 @@ export function DailySchedulePage() {
           <SettingsPanel onSaved={() => setSettingsOpen(false)} />
         </DialogShell>
       ) : null}
+
     </AppLayout>
   );
 }

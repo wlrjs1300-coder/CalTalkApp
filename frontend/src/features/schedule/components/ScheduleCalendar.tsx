@@ -44,7 +44,7 @@ function truncateText(value: string, maxLength: number) {
     return normalized;
   }
 
-  let kept: string[] = [];
+  const kept: string[] = [];
   let charCount = 0;
   for (const segment of segments) {
     if (segment.trim() !== '') {
@@ -110,11 +110,6 @@ export function ScheduleCalendar({ schedules, timeZone, onSelect, onDateSelect }
     () => monthText(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1)),
     [monthCursor],
   );
-
-  useEffect(() => {
-    const now = new Date();
-    setMonthCursor(new Date(now.getFullYear(), now.getMonth(), 1));
-  }, [timeZone]);
 
   useEffect(() => {
     const panel = calendarPanelRef.current;
@@ -216,7 +211,7 @@ export function ScheduleCalendar({ schedules, timeZone, onSelect, onDateSelect }
     pendingMonthStepsRef.current = 0;
   }, []);
 
-  const animate = useCallback(() => {
+  const animate = useCallback(function runAnimation() {
     const panelHeight = Math.max(1, panelHeightRef.current);
     const rowHeight = panelHeight / 6;
     const threshold = Math.max(16, rowHeight * 0.25);
@@ -244,7 +239,7 @@ export function ScheduleCalendar({ schedules, timeZone, onSelect, onDateSelect }
         translateYRef.current *= RETURN_VELOCITY;
         applyGridTransform(translateYRef.current);
         lastFrameRef.current = now;
-        rafRef.current = window.requestAnimationFrame(animate);
+        rafRef.current = window.requestAnimationFrame(runAnimation);
         return;
       }
 
@@ -257,7 +252,7 @@ export function ScheduleCalendar({ schedules, timeZone, onSelect, onDateSelect }
     }
 
     lastFrameRef.current = now;
-    rafRef.current = window.requestAnimationFrame(animate);
+    rafRef.current = window.requestAnimationFrame(runAnimation);
   }, [applyGridTransform, setMonth, stopAnimation]);
 
   const startScrollMomentum = useCallback(
