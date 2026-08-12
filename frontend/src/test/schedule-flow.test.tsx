@@ -66,7 +66,7 @@ function renderWorkspace() {
   const queryClient = createQueryClient();
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <ScheduleWorkspace timeZone="Asia/Seoul" />
+      <ScheduleWorkspace timeZone="Asia/Seoul" viewMode="list" />
     </QueryClientProvider>,
   );
   return { ...result, queryClient };
@@ -111,7 +111,7 @@ describe('schedule workspace', () => {
     renderWorkspace();
     const trigger = screen.getByRole('button', { name: '새 일정' });
     await userEvent.click(trigger);
-    expect(screen.getByRole('button', { name: '닫기' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: '모달 닫기' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
@@ -138,7 +138,7 @@ describe('schedule workspace', () => {
         location: null,
       }),
     );
-    expect(await screen.findByText('일정을 생성했습니다.')).toBeVisible();
+    expect(await screen.findByText('일정이 생성되었습니다.')).toBeVisible();
   });
 
   it('opens conflict UI for create 409 and approves the confirmation', async () => {
@@ -193,7 +193,7 @@ describe('schedule workspace', () => {
     updateScheduleMock.mockResolvedValue({ ...detail, title: '변경된 회의', version: 5 });
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '일정 수정' }));
+    await userEvent.click(screen.getByRole('button', { name: '수정' }));
     const title = screen.getByLabelText('제목');
     await userEvent.clear(title);
     await userEvent.type(title, '변경된 회의');
@@ -209,7 +209,7 @@ describe('schedule workspace', () => {
     updateScheduleMock.mockResolvedValue({ ...detail, location: null, version: 5 });
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '일정 수정' }));
+    await userEvent.click(screen.getByRole('button', { name: '수정' }));
     await userEvent.clear(screen.getByLabelText('장소 (선택)'));
     await userEvent.click(screen.getByRole('button', { name: '변경사항 저장' }));
     await waitFor(() =>
@@ -223,10 +223,10 @@ describe('schedule workspace', () => {
     deleteScheduleMock.mockResolvedValue(undefined);
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }));
     await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
     expect(deleteScheduleMock).toHaveBeenCalledWith(7, 4);
-    expect(await screen.findByText('일정을 삭제했습니다.')).toBeVisible();
+    expect(await screen.findByText('일정이 삭제되었습니다.')).toBeVisible();
   });
 
   it('shows a version conflict returned by delete', async () => {
@@ -237,7 +237,7 @@ describe('schedule workspace', () => {
     );
     renderWorkspace();
     await openDetail();
-    await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }));
     await userEvent.click(screen.getByRole('button', { name: '일정 삭제' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('일정이 변경되었습니다.');
   });

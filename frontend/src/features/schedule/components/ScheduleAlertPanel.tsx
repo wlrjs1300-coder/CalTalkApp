@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ScheduleListItem } from '../../../api/schedule';
 import { BellIcon, CalendarIcon, ClockIcon, MapPinIcon } from '../../../components/common/Icons';
 
@@ -30,6 +31,8 @@ export function ScheduleAlertPanel({
   onRetry,
   onSelect,
 }: ScheduleAlertPanelProps) {
+  const [now] = useState(() => Date.now());
+
   if (isLoading) {
     return (
       <div className="schedule-skeleton" role="status" aria-label="일정 알림을 불러오는 중">
@@ -51,7 +54,6 @@ export function ScheduleAlertPanel({
     );
   }
 
-  const now = Date.now();
   const endWindow = now + WINDOW_DAYS * DAY_MS;
   const alerts = (schedules ?? [])
     .map((item) => ({ ...item, start: new Date(item.startAt) }))

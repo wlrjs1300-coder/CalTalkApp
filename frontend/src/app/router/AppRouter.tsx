@@ -20,6 +20,7 @@ export function AppRouter() {
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/day/:date" element={<DailySchedulePage />} />
+          <Route path="/day/:date/new" element={<DailyScheduleDetailPage />} />
           <Route path="/day/:date/event/:scheduleId" element={<DailyScheduleDetailPage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />

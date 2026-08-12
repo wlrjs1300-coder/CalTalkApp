@@ -12,6 +12,7 @@ import { DeleteScheduleDialog } from './DeleteScheduleDialog';
 import { ScheduleCalendar } from './ScheduleCalendar';
 import { ScheduleDetail as DetailDialog } from './ScheduleDetail';
 import { ScheduleForm } from './ScheduleForm';
+import { ScheduleList } from './ScheduleList';
 
 interface ScheduleWorkspaceProps {
   timeZone: string;
@@ -44,7 +45,7 @@ function dateError(error: unknown): ApiError {
   return new ApiError({ status: 422, code: 'INVALID_LOCAL_TIME', message });
 }
 
-export function ScheduleWorkspace({ timeZone, onDateSelect }: ScheduleWorkspaceProps) {
+export function ScheduleWorkspace({ timeZone, viewMode = 'calendar', onDateSelect }: ScheduleWorkspaceProps) {
   const sectionRef = useRef<HTMLElement | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isPwaMode, setIsPwaMode] = useState(false);
@@ -61,7 +62,7 @@ export function ScheduleWorkspace({ timeZone, onDateSelect }: ScheduleWorkspaceP
   const [conflict, setConflict] = useState<ConflictState>();
   const [notice, setNotice] = useState<string>();
 
-  const tab: WorkspaceTab = 'calendar';
+  const tab = viewMode;
 
   useEffect(() => {
     if (schedules.error instanceof ApiError && schedules.error.status === 401) {
@@ -105,6 +106,12 @@ export function ScheduleWorkspace({ timeZone, onDateSelect }: ScheduleWorkspaceP
 
   const onScrollTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const openCreate = () => {
+    mutations.create.reset();
+    setFormError(undefined);
+    setFormState({ mode: 'create' });
   };
 
   const submitCreate = (values: ScheduleFormValues) => {
@@ -189,7 +196,7 @@ export function ScheduleWorkspace({ timeZone, onDateSelect }: ScheduleWorkspaceP
       onSuccess: (schedule) => {
         setConflict(undefined);
         setSelectedId(schedule.id);
-        setNotice('일정 충돌을 확인해 진행했어요.');
+        setNotice('충돌을 확인하고 일정을 저장했습니다.');
       },
       onError: (error) => {
         const replacement = error instanceof ApiError ? conflictFrom(error) : undefined;
@@ -197,7 +204,7 @@ export function ScheduleWorkspace({ timeZone, onDateSelect }: ScheduleWorkspaceP
           setConflict({
             ...replacement,
             replacementCount: conflict.replacementCount + 1,
-            notice: '일정 변경이 밀려서 다시 확인이 필요해요.',
+            notice: '일정 정보가 변경되어 최신 내용으로 다시 확인이 필요합니다.',
           });
         }
       },
@@ -235,7 +242,36 @@ export function ScheduleWorkspace({ timeZone, onDateSelect }: ScheduleWorkspaceP
         </div>
       ) : null}
 
-      <ScheduleCalendar schedules={schedules.data?.items} timeZone={timeZone} onSelect={openSchedule} onDateSelect={onDateSelect} />
+      {tab === 'list' ? (
+        <>
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">나의 캘린더</p>
+              <h2 id="schedule-heading">다가오는 일정</h2>
+              <p className="muted">가까운 일정부터 시간 순서로 확인하세요.</p>
+            </div>
+            <button type="button" className="primary-button compact-button" onClick={openCreate}>
+              <span aria-hidden="true">＋</span> 새 일정
+            </button>
+          </div>
+          <ScheduleList
+            schedules={schedules.data?.items}
+            timeZone={timeZone}
+            isLoading={schedules.isPending}
+            error={schedules.error}
+            onRetry={() => void schedules.refetch()}
+            onSelect={setSelectedId}
+            onCreate={openCreate}
+          />
+        </>
+      ) : (
+        <ScheduleCalendar
+          schedules={schedules.data?.items}
+          timeZone={timeZone}
+          onSelect={openSchedule}
+          onDateSelect={onDateSelect}
+        />
+      )}
 
       {selectedId !== null && !formState && !deleteTarget ? (
         <DetailDialog
