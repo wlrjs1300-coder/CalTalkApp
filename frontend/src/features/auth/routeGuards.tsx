@@ -5,6 +5,8 @@ import { ApiError } from '../../api/errors';
 import { StatusView } from '../../components/common/StatusView';
 import { isBackendStartingError, useCurrentUser } from './authQuery';
 
+const BACKEND_RECHECK_INTERVAL_MS = 8_000;
+
 function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
@@ -23,12 +25,24 @@ function useAuthTimeout(timeoutMs: number) {
     return () => window.clearTimeout(timer);
   }, [query.isPending, timeoutMs]);
 
+  useEffect(() => {
+    if (!query.isError || !isBackendStartingError(query.error) || query.isFetching) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void query.refetch({ cancelRefetch: false });
+    }, BACKEND_RECHECK_INTERVAL_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [query.error, query.isError, query.isFetching, query.refetch]);
+
   const retryNow = async () => {
     if (isManualRetrying) return;
 
     setIsManualRetrying(true);
     try {
-      await query.refetch({ cancelRefetch: true });
+      await query.refetch({ cancelRefetch: false });
     } finally {
       setIsManualRetrying(false);
     }
@@ -76,7 +90,7 @@ function ServerWakeupView({
         </p>
 
         <div className="server-wakeup-progress" aria-label="서버 연결 진행 중">
-          {['서버 시작', '데이터 연결', '화면 확인'].map((label, index) => (
+          {['서버 시작', '데이터 연결', '응답 확인'].map((label, index) => (
             <div
               className={index < activeStage ? 'is-complete' : index === activeStage ? 'is-active' : ''}
               key={label}
@@ -88,7 +102,7 @@ function ServerWakeupView({
         </div>
 
         <p className="server-wakeup-note">
-          첫 접속은 보통 1분 안팎이 걸릴 수 있습니다. 이 페이지를 그대로 두셔도 됩니다.
+          무료 서버는 최대 3분 정도 걸릴 수 있습니다. 연결될 때까지 자동으로 다시 확인합니다.
         </p>
         <button
           type="button"
