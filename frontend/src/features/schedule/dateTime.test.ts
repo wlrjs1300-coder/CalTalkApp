@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ScheduleDetail } from '../../api/schedule';
-import { dateTimeLocalToUtc, formatInTimezone, utcToDateTimeLocal } from './dateTime';
+import {
+  addMinutesToDateTimeLocal,
+  dateTimeLocalToUtc,
+  formatInTimezone,
+  utcToDateTimeLocal,
+} from './dateTime';
 import { buildUpdateRequest, type ScheduleFormValues } from './schemas';
 
 const original: ScheduleDetail = {
@@ -22,6 +27,11 @@ const values: ScheduleFormValues = {
 };
 
 describe('schedule timezone conversion', () => {
+  it('sets the default end time to one hour after the selected start time', () => {
+    expect(addMinutesToDateTimeLocal('2026-08-12T14:30', 60)).toBe('2026-08-12T15:30');
+    expect(addMinutesToDateTimeLocal('2026-08-12T23:30', 60)).toBe('2026-08-13T00:30');
+  });
+
   it('formats a UTC instant in the user timezone', () => {
     expect(utcToDateTimeLocal('2026-01-15T00:00:00Z', 'Asia/Seoul')).toBe('2026-01-15T09:00');
     expect(formatInTimezone('invalid', 'Asia/Seoul')).toBe('유효하지 않은 시간');

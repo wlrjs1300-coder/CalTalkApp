@@ -1221,8 +1221,10 @@ input:-webkit-autofill:focus {
   font-weight: 850;
 }
 .server-wakeup-progress small { font-size: 0.69rem; font-weight: 750; }
-.server-wakeup-progress .is-active { color: #725c06; }
-.server-wakeup-progress .is-active span {
+.server-wakeup-progress .is-active,
+.server-wakeup-progress .is-complete { color: #725c06; }
+.server-wakeup-progress .is-active span,
+.server-wakeup-progress .is-complete span {
   border-color: #e8c43d;
   background: #fff6c9;
   box-shadow: 0 0 0 5px rgb(255 210 26 / 10%);
@@ -1250,6 +1252,10 @@ input:-webkit-autofill:focus {
   cursor: pointer;
 }
 .server-wakeup-retry:hover { border-color: #d9b62e; background: #fffaf0; }
+.server-wakeup-retry:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
 @keyframes server-wakeup-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .server-wakeup-orbit { animation: none; }
