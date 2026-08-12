@@ -69,16 +69,29 @@
 html {
   min-width: 320px;
   background: var(--color-bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   background: var(--color-bg);
 }
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 button,
 a,
@@ -5867,6 +5880,38 @@ body.calendar-page-lock .app-main.calendar-main {
   }
   .timezone-controls button {
     width: 100%;
+  }
+}
+
+/* iOS Safari: keep the viewport scale, safe areas, and fixed surfaces aligned. */
+@media (max-width: 680px) {
+  .app-header {
+    height: calc(62px + env(safe-area-inset-top));
+    min-height: calc(62px + env(safe-area-inset-top));
+  }
+
+  body.calendar-page-lock .app-main.calendar-main {
+    height: calc(100dvh - 62px - env(safe-area-inset-top));
+  }
+
+  .daily-schedule-page .daily-schedule-toolbar {
+    position: relative;
+    top: auto;
+  }
+
+  .dialog-backdrop {
+    padding:
+      max(0.5rem, env(safe-area-inset-top))
+      max(0.5rem, env(safe-area-inset-right))
+      max(0.5rem, env(safe-area-inset-bottom))
+      max(0.5rem, env(safe-area-inset-left));
+  }
+
+  .dialog:has(.settings-panel) {
+    max-height: min(
+      92svh,
+      calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem)
+    );
   }
 }
 

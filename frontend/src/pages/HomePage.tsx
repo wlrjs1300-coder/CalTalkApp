@@ -23,9 +23,21 @@ export function HomePage() {
   });
 
   useEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration;
+    const resetDocumentScroll = () => {
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+
+    window.history.scrollRestoration = 'manual';
+    resetDocumentScroll();
+    const resetScrollFrame = window.requestAnimationFrame(resetDocumentScroll);
+
     document.documentElement.classList.add('calendar-page-lock');
     document.body.classList.add('calendar-page-lock');
     return () => {
+      window.cancelAnimationFrame(resetScrollFrame);
+      window.history.scrollRestoration = previousScrollRestoration;
       document.documentElement.classList.remove('calendar-page-lock');
       document.body.classList.remove('calendar-page-lock');
     };
